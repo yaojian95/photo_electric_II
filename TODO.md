@@ -1,0 +1,2 @@
+- apply distortion correction between high and low energy images
+- std大于某个值的方形认为是阶梯样

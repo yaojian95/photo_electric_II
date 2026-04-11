@@ -1,0 +1,7 @@
+可以通过 py .\imaging.py D:\vm_workspace\原始数据\GOS\160kV\0.05%\0.4mm可视化显示
+也可以直接将.xyz文件拖入ovito(https://www.ovito.org/)中可视化显示
+数据点是四维的，分别是x(dx=0.4mm)、y(dy=探测器厚度，不用管它)、z(dz=0.4mm)坐标和每个小体积元的能量沉积
+scintillator_Gd2O2S-1_edep_*.xyz文件是低能探测器文件
+scintillator_Gd2O2S-2_edep_*.xyz文件是高能探测器文件
+scintillator_Gd2O2S-1_sp_*.dat文件是低能探测器的吸收能谱
+scintillator_Gd2O2S-2_sp_*.dat文件是高能探测器的吸收能谱
