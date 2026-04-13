@@ -1,3 +1,66 @@
+## 2026-04-13
+- Refined **Disk Core Sampling**: Replaced circular 2/3 radius approximation with **Centroid-Based Contour Scaling**. The sampling area (blue boundary) now precisely tracks the actual geometry of the disk, even if it is elliptical or irregular.
+
+- Refined **Step Sampling Box Dimensions**: Decoupled horizontal and vertical margins in `get_10_step_means`. New default coverage: **80% horizontal** (margin_x=0.1) and **60% vertical** (margin_y=0.2). This provides the optimal balance between data density and edge protection.
+
+- Widened **Step Sampling Boxes**: Reduced `sampling_margin` from 0.3 to **0.1** in `get_10_step_means`. This expands the horizontal sampling area from 40% to **80%** of the object's width, significantly increasing the data representation for each thickness step.
+
+- Hardened **Classification Robustness**:
+    - Lowered Pearson Correlation threshold to **0.7** to detect non-linear (accelerating) stepped gradients.
+    - Lowered Rectangularity threshold to **0.75** to correctly classify stepped samples with irregular or noisy contours (preventing them from defaulting to `ore`).
+
+- Restructured **Dynamic Step Classification**:
+    - Replaced loose monotonicity checks with **Pearson Correlation ($|r| > 0.9$)** for stable trend detection.
+    - Introduced **Intensity-Aware Dynamic Span Threshold**: Classification now requires a minimum value range of `max(2.0, 0.05 * average_intensity)`. This prevents flat, noisy surfaces from being misidentified as steps while preserving sensitivity for low-intensity samples.
+
+- Optimized **Step Classification Sensitivity**: Changed the dependency between monotonicity and intensity jump from `AND` to `OR`. Stepped samples are now identified if they show either a significant intensity jump OR a clear monotonic trend, improving detection for samples with low thickness/intensity spans.
+
+- Fixed **Redundant Annotation Buildup**: Centralized all mean/std drawing in the main processing loop to prevent shadow-text and overlap on disks.
+- Simplified `get_bricks` to only handle contour ID drawing.
+
+- Implemented **Refined Type-Specific Analysis**:
+    - **Step Samples**: Now saves 10 individual pixel arrays (one per step core) in `.pkl` instead of a single object block.
+    - **Disks**: Statistics (`mean`, `std`) and saved pixels are now based on a **2/3 radius core** to eliminate edge effects.
+- Enhanced **Verification Visuals**:
+    - Added **Blue Circular Boundary** for disk core sampling areas.
+    - Updated centroid labels to show **Core Statistics** in yellow for disks.
+
+- Added **Classification Labels** to visual results: The summary images in `contoured_images/` now display the detected category (e.g., `block`, `step_sample`) in green above the object's metadata.
+- Optimized annotation layout to prevent text overlap.
+
+- Implemented **95% Inner-Pixel Calculation**: Refined global `mean` and `std` to only use 95% of the interior pixels (via contour erosion), eliminating boundary noise and mixed-pixel artifacts.
+- Restructured **Organized Result Storage**: Upgraded the flat output directory into a categorized subfolder system (`contoured_images`, `pixel_values`, `high_low_images`).
+- Added `get_inner_95_pixels` helper to `utils_II.py`.
+
+- Consolidated **Visual Annotations**: Integrated `Mean` and `Std` display directly into `get_bricks` for a cleaner result image.
+- Guaranteed **Stat Integrity**: Ensured that intensity metrics are calculated on original pixels before any text or contours are drawn on the image.
+- Improved **Layout Clarity**: Reduced text clutter by using smaller, layered font blocks for contour metadata.
+
+- Fixed **ROI Coordinate Misalignment**: Re-aligned the warping pipeline to use ROI-cropped images, ensuring `low.png` results are centered and accurate.
+- Verified **Intensity Profiling**: Confirmed that 10-step mean sequences now perfectly match the global contour means without background interference.
+
+- Implemented **High-Precision Warped Step Detection**: Straightens tilted objects using perspective transforms for accurate segmenting.
+- Added **10-Step Margin Sampling**: Extracts means from the central 40% of each segment (30% margin) to eliminate edge/alignment noise.
+- Enhanced **Visualization**: Draws back-projected sampling boxes on `contoured.png` for visual verification of extraction regions.
+- Updated **Data Storage**: ROI images (`_low.png`, `_high.png`) are now saved as straightened crops.
+- Refined classification logic to use 10-step monotonicity.
+
+- Implemented **Segment Mean Intensity Logging**: The system now outputs absolute mean values for the top 1/10, middle 8/10, and bottom 1/10 segments of rectangular objects.
+- Updated `check_step_gradient` and `classify_contour` to propagate these raw intensity metrics to the console.
+- Refined per-image console output to display `[top, mid, bot]` triplets for classification cross-verification.
+
+- Implemented **Detailed Gradient Data Logging**: `check_step_gradient` and `classify_contour` now return raw `diff_top` and `diff_bottom` values for transparent threshold tuning.
+- Updated `standard_sample_0402.py` to print a per-image summary of these gradient differences.
+- Refined `classify_contour` to return a structured `meta` dictionary instead of individual values.
+
+- Implemented **Row-Gradient Step Detection**: Replaced `std`-based logic with a more robust method that compares the mean of edge regions (first/last 1/10th) with the middle (8/10ths) to identify thickness steps.
+- Added **Centroid Annotations**: The `contoured.png` output now automatically displays the `mean` and `std` values at the centroid of each identified object for immediate visual verification.
+- Updated `utils_II.py` with `check_step_gradient` utility.
+
+- Enhanced `classify_contour` in `utils_II.py` with `Ellipse Fit` logic to robustly identify disks even when elongated.
+- Implemented automated detection of `step_sample` (bricks) by calculating pixel standard deviation (`std > 5.0`) for rectangular objects.
+- Updated `standard_sample_0402.py` to flow pixel data through the classifier.
+
 ## 2026-04-11
 - Updated `standard_sample_0402.py` to automatically organize results into subfolders within `results/`, named after the input data directory (e.g., `results/20260402/`).
 - Refined saving logic to output separate low and high energy images for each contour and exclude R-value data.

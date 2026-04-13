@@ -13,9 +13,15 @@ This workspace focus on validating XRT image quality and extracting standard sam
 - **Purpose**: Local wrapper for dual-energy XRT processing.
 - **Functions**:
     - `compute_R`: Calculates the R-value image (float).
-    - `get_bricks`: Main pipeline to segment items. Now returns `cnt_filtered` for downstream processing.
-    - `classify_contour`: Geometric classifier to distinguish between `block`, `ore`, and `disk`.
-    - `save_contour_data`: Helper to save categorized pixels and bounding box visuals.
+    - `get_step_pixels_list`: Extracts individual arrays for each of the 10 step cores.
+    - `get_disk_core_info`: Calculates core pixels and boundary for 2/3 radius disk sampling.
+    - `get_inner_95_pixels`: Helper for general 95% area erosion.
+    - `get_bricks`: Main pipeline. Now uses `get_inner_95_pixels` for noise-free statistical display.
+    - `check_step_gradient`: Analyzes row-wise mean gradients to identify stepped thickness patterns.
+    - `warp_straighten`: Aligns tilted rectangles to axes for clean analysis.
+    - `get_10_step_means`: Samples 10 specific core regions from straightened objects.
+    - `classify_contour`: Uses 10-step monotonicity and geometric features for classification.
+    - `save_contour_data`: Saves straightened/warped ROI images and pixel data.
 
 ### `standard_sample_0402.py`
 - **Purpose**: Batch analysis of standard samples at different voltages (140kV, 160kV, 180kV).
