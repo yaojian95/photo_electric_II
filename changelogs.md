@@ -1,4 +1,13 @@
-## 2026-04-13
+## 2026-04-14
+- Fixed **Block Extraction Coordinate Bug**: Re-routed `block` sample erosion (`get_inner_95_pixels`) to execute directly on the global `low_roi` and `high_roi` in `extract_sample_values.py`. This resolves an issue where the global shape contour (`cnt`) was erroneously applied to tiny, locally-warped cropped images, which previously resulted in empty `pixels_low` arrays and mismatched `pixels_high` arrays for `block` objects.
+
+- Fixed **Step Sample Data Extraction**: Corrected a logic flaw where `step_sample` data was being saved as a single global array. It now correctly saves a **list of 10 pixel arrays** (one per step core) in the `.pkl` file, enabling precise thickness-based analysis.
+
+- Formulated and implemented a regression-based thickness decoupling strategy in `decouple_thickness.py`. It uses a polynomial model to map High and Low energy pixels (H, L) directly to predefined Atomic Numbers (Z), creating thickness-invariant variables.
+- Created parameter feature engineering: `extract_feature_HL_ratio` and `extract_feature_poly` functions inside `decouple_thickness.py` to compare linear, quadratic H/L ratio models vs generic 2D polynomials.
+
+- Integrated Dual-Axis Calibration: `get_bricks` and `split_dual_xray_image` now propagate both `fx` and `fy` parameters (default `fx=0.9909`, `fy=1.0`).
+
 - Refined **Disk Core Sampling**: Replaced circular 2/3 radius approximation with **Centroid-Based Contour Scaling**. The sampling area (blue boundary) now precisely tracks the actual geometry of the disk, even if it is elliptical or irregular.
 
 - Refined **Step Sampling Box Dimensions**: Decoupled horizontal and vertical margins in `get_10_step_means`. New default coverage: **80% horizontal** (margin_x=0.1) and **60% vertical** (margin_y=0.2). This provides the optimal balance between data density and edge protection.

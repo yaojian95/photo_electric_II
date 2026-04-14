@@ -4,34 +4,43 @@
 This workspace focus on validating XRT image quality and extracting standard sample features using an external library pipeline.
 
 ## External Library Integration
-- **Path**: `E:\photo_electric\jt_ore_sorting-main\jt_ore_sorting-main`
-- **Modules used**: `dataloader`, `preprocessing`.
+- **Modules used**: `preprocessing`. The dual-energy splitting logic has been localized to `utils_II.py` to eliminate external dependencies.
 
 ## Local Scripts
 
 ### `utils_II.py`
 - **Purpose**: Local wrapper for dual-energy XRT processing.
 - **Functions**:
+    - `split_dual_xray_image`: Locally implemented splitting logic with integrated geometric distortion correction for high-energy images.
     - `compute_R`: Calculates the R-value image (float).
     - `get_step_pixels_list`: Extracts individual arrays for each of the 10 step cores.
-    - `get_disk_core_info`: Calculates core pixels and boundary for 2/3 radius disk sampling.
+    - `get_disk_core_info`: Calculates core pixels and boundary for centroid-based contour scaling.
     - `get_inner_95_pixels`: Helper for general 95% area erosion.
-    - `get_bricks`: Main pipeline. Now uses `get_inner_95_pixels` for noise-free statistical display.
-    - `check_step_gradient`: Analyzes row-wise mean gradients to identify stepped thickness patterns.
-    - `warp_straighten`: Aligns tilted rectangles to axes for clean analysis.
-    - `get_10_step_means`: Samples 10 specific core regions from straightened objects.
-    - `classify_contour`: Uses 10-step monotonicity and geometric features for classification.
-    - `save_contour_data`: Saves straightened/warped ROI images and pixel data.
+    - `get_bricks`: Main pipeline for batch feature extraction.
+    - `check_step_gradient`: Analyzes row-wise mean gradients using Pearson Correlation and dynamic thresholds.
+    - `warp_straighten`: Aligns tilted objects using perspective transforms.
+    - `get_10_step_means`: Multi-axis core sampling (80% width, 60% height).
+    - `save_contour_data`: Organized saving of warped images and pixel data.
 
-### `standard_sample_0402.py`
-- **Purpose**: Batch analysis of standard samples at different voltages (140kV, 160kV, 180kV).
+### `extract_sample_values.py`
+- **Purpose**: Batch analysis of standard samples using relative paths.
 - **Workflow**:
-    1. Ensures script directory is in `sys.path`.
-    2. Dynamically creates an output subfolder in `results/` based on the `data_dir` basename.
-    3. Iterates through the specified tests and voltages.
-    4. Calls `get_bricks` from `utils_II.py`.
-    5. Automatically **classifies each contour** as a block, ore, or disk.
-    6. Saves categorized individual data (`.pkl`) and separate low/high energy images for each identified object.
+    1. Finds target TIF files in relative data directories.
+    2. Synchronized `get_bricks` parameters.
+    3. Performs type-specific refined analysis (Disk scaling, Step 10-segmentation).
+    4. Outputs categorized results to `results/`.
+
+### `decouple_thickness.py`
+- **Purpose**: Fits a multivariate polynomial regression model to decouple thickness from dual-energy XRT signals, mapping them directly to Equivalent Atomic Numbers (Z).
+- **Functions**:
+    - `extract_feature_HL_ratio(L, H)`: Generates input features `[H/L, (H/L)^2]` to model the ratio-based non-linear transformation. 
+    - `extract_feature_poly(L, H)`: Generates simple base features `[L, H]` for feeding into `PolynomialFeatures(2)` which creates `[L, H, L^2, H^2, LH]`.
+- **Workflow**:
+    1. Loads step-sample data from `results/20260331/pixel_values/` for Cu, Fe, and Al.
+    2. Assigns target atomic numbers: Cu=29, Fe=26, Al=13.
+    3. Fits Ridge regression models across gradients of thicknesses without giving thickness as a feature, forcing the models to learn parameters that invariant to thickness changes.
+    4. Plots the results to visualize thickness decoupling via predicted Z variance.
+
 
 ### 2026-04-10
 - Updated `txt2img_TYM.py` to centralize all generated images into a single `converted_results` folder.
@@ -60,5 +69,4 @@ This workspace focus on validating XRT image quality and extracting standard sam
 
 
 ## Data Paths
-- 0407 Samples: `E:\multi_source_info\data_dir\20260407_Sample_test`
-- 0402 Samples: `E:\multi_source_info\data_dir\20260402`
+- Standard Samples: `data/` or relevant relative path.

@@ -1,17 +1,122 @@
 import sys
 import os
-
 import numpy as np
 import cv2
 import pandas as pd
-
-folder_path = r'E:\photo_electric\jt_ore_sorting-main\jt_ore_sorting-main'
-if folder_path not in sys.path:
-    sys.path.append(folder_path)
-
-from dataloader import split_dual_xray_image
-from preprocessing import get_contour_pixels, get_contour_box_image
+from pathlib import Path
 import pickle
+
+def get_contour_centroid(contour):
+    """Calculates the geometric centroid (cX, cY) of a contour."""
+    M = cv2.moments(contour)
+    if M["m00"] != 0:
+        cX = int(M["m10"] / M["m00"])
+        cY = int(M["m01"] / M["m00"])
+    else:
+        cX, cY = 0, 0
+    return cX, cY
+
+def sort_contours(contours, tolerance=35, max_len=9, direction='y', reverse=False):
+    """
+    Sorts contours using a tiered approach.
+    direction='x': Row-major (Group by Row Y, Sort by X inside row).
+    direction='y': Column-major (Group by Column X, Sort by Y inside column).
+    """
+    if not contours:
+        return []
+        
+    if direction == 'x':
+        sort_index = 1   # Row sorting depends first on vertical (Y)
+        group_index = 0  # Then horizontal (X) within row
+    elif direction == 'y':
+        sort_index = 0   # Column sorting depends first on horizontal (X)
+        group_index = 1  # Then vertical (Y) within column
+    else:
+        raise ValueError("Direction must be 'x' (row-major) or 'y' (column-major).")
+
+    # Calculate centroids
+    centers = [get_contour_centroid(cnt) for cnt in contours]
+    
+    # Initial sort to group them
+    sorted_indices = sorted(range(len(centers)), key=lambda i: centers[i][sort_index])
+    sorted_contours = [contours[i] for i in sorted_indices]
+    sorted_centers = [centers[i] for i in sorted_indices]
+    
+    groups = []
+    current_group = []
+    previous = None
+    
+    for cnt, center in zip(sorted_contours, sorted_centers):
+        if previous is None:
+            current_group.append((cnt, center[group_index]))
+            previous = center[sort_index]
+        else:
+            # Check if within tolerance and limit
+            if abs(center[sort_index] - previous) <= tolerance and len(current_group) < max_len:
+                current_group.append((cnt, center[group_index]))
+                previous = center[sort_index]
+            else:
+                # Sort the group by the secondary axis
+                current_group_sorted = sorted(current_group, key=lambda item: item[1], reverse=reverse)
+                groups.extend([item[0] for item in current_group_sorted])
+                current_group = [(cnt, center[group_index])]
+                previous = center[sort_index]
+    
+    if current_group:
+        current_group_sorted = sorted(current_group, key=lambda item: item[1], reverse=reverse)
+        groups.extend([item[0] for item in current_group_sorted])
+    
+    return groups
+
+def get_contour_pixels(image, contour):
+    """Returns pixel values inside the given contour."""
+    mask = np.zeros(image.shape[:2], dtype=np.uint8)
+    cv2.drawContours(mask, [contour], -1, 255, -1)
+    return image[mask == 255]
+
+def get_contour_box_image(image, contour, margin=10):
+    """Returns a cropped image of the bounding box of the contour with an optional margin."""
+    x, y, w, h = cv2.boundingRect(contour)
+    y1, y2 = max(y - margin, 0), min(y + h + margin, image.shape[0])
+    x1, x2 = max(x - margin, 0), min(x + w + margin, image.shape[1])
+    return image[y1:y2, x1:x2]
+
+def get_contour_box_image_with_background(image, contour, margin=0, background_value=255):
+    """Extracts the smallest rectangle containing the contour with a specified background value."""
+    x, y, w, h = cv2.boundingRect(contour)
+    y1, y2 = max(y - margin, 0), min(y + h + margin, image.shape[0])
+    x1, x2 = max(x - margin, 0), min(x + w + margin, image.shape[1])
+    
+    box_image = image[y1:y2, x1:x2]
+    mask = np.zeros_like(box_image, dtype=np.uint8)
+    # Adjust contour coordinates to the cropped image
+    contour_offset = contour - [x1, y1]
+    cv2.drawContours(mask, [contour_offset], -1, 255, thickness=cv2.FILLED)
+    
+    result = np.full_like(box_image, background_value, dtype=np.uint8)
+    result[mask == 255] = box_image[mask == 255]
+    return result
+
+def split_dual_xray_image(image, offset_up=0, offset_down=0, fx=0.9909, fy=1.0):
+    """
+    Splits a dual-energy X-ray image (stacked horizontally after T) into low and high energy parts.
+    Integrates geometric distortion correction for the high-energy channel.
+    
+    Parameters:
+        image: Transposed raw image (channel-stacked along rows).
+        offset_up, offset_down: Vertical cropping offsets.
+        fx: Horizontal correction factor (default 0.9909).
+        fy: Vertical correction factor (default 1.0).
+    """
+    height = image.shape[0]
+    # Split into two channels
+    low_power_image = image[offset_up:int(height / 2) - offset_down, :]
+    high_power_image = image[int(height / 2) + offset_up:height - offset_down, :]
+
+    # Apply distortion correction to high-energy part before returning
+    high_power_image = correct_high_energy_distortion(high_power_image, fx, fy)
+
+    return low_power_image, high_power_image
 
 def warp_straighten(image, cnt):
     """
@@ -161,18 +266,24 @@ def classify_contour(cnt, box_image_low=None, pixels_low=None):
             meta["top_m"], meta["mid_m"], meta["bot_m"] = m_top, m_mid, m_bot
             if is_step:
                 label = "step_sample"
+                meta["refined_pixels_low"] = get_step_pixels_list(box_image_low, s_boxes)
             else:
                 label = "block"
+                # (Optional) block erosion is now fully handled via global ROIs in the main runner to avoid coordinate transformation bugs
+
         # 2. Fallback to std if only pixels are available
         elif pixels_low is not None:
             if meta["std"] > 5.0: 
                 label = "step_sample"
             else:
                 label = "block"
+                # (Optional) could erode here but box_image is preferred
         else:
             label = "block"
     else: 
         label = "ore"
+        # ORE keeps ALL pixels as requested by user
+        meta["refined_pixels_low"] = pixels_low
         
     return label, meta
 
@@ -299,10 +410,10 @@ def get_inner_95_pixels(image, cnt):
         
     return image[eroded_mask == 255]
 
-def get_bricks(path = 'all_unnorm.png', roi = [200, -1, 600, 800], th_val = 175):
+def get_bricks(path = 'all_unnorm.png', roi = [200, -1, 600, 800], th_val = 175, fx=0.99, fy=1.0, sort_direction='y'):
     data_int8 = cv2.imread(path, cv2.IMREAD_GRAYSCALE)
     # all_unnorm = all_unnorm.astype(np.int8)
-    low_ori, high_ori = split_dual_xray_image(data_int8.T)
+    low_ori, high_ori = split_dual_xray_image(data_int8.T, fx=fx, fy=fy)
     low, high = low_ori.T[roi[0]:roi[1], roi[2]:roi[3]], high_ori.T[roi[0]:roi[1], roi[2]:roi[3]]
     extra_bottom = low[0:10, :]
     low, high = np.vstack((low, extra_bottom)), np.vstack((high, extra_bottom))
@@ -322,7 +433,9 @@ def get_bricks(path = 'all_unnorm.png', roi = [200, -1, 600, 800], th_val = 175)
     for cnt in contours:
         if cv2.contourArea(cnt) > 100 and cv2.contourArea(cnt) < 50000:
             cnt_filtered.append(cnt)
-    cnt_filtered = sorted(cnt_filtered, key=lambda c: ((cv2.boundingRect(c)[1])))
+    
+    # Use tiered sorting algorithm for robust indexing
+    cnt_filtered = sort_contours(cnt_filtered, direction=sort_direction)
 
     box_images = []
 
@@ -356,3 +469,51 @@ def get_bricks(path = 'all_unnorm.png', roi = [200, -1, 600, 800], th_val = 175)
     # plt.colorbar()
 
     return pixels, contoured, [low, high], r_pixels, contoured_r, box_images, cnt_filtered
+
+def correct_high_energy_distortion(image: np.ndarray, fx: float, fy: float = 1.0) -> np.ndarray:
+    """
+    针对高能和低能闪烁体探测器高度不同导致的扇形投影畸变进行校正。
+    该函数通过双向缩放及对称补齐/裁剪，使校正后的图像保持原始尺寸。
+    
+    Parameters:
+        image (np.ndarray): 输入的高能图像 (grayscale or color)。
+        fx (float): 横向修正系数。
+        fy (float): 纵向修正系数 (默认 1.0)。
+        fx和fy只是为了防止图像转置，实际只有一个方向畸变。0.9909 for both 银山设备和厂房设备。
+
+    Returns:
+        np.ndarray: 校正后的图像，尺寸与输入一致。
+    """
+    if (fx == 1.0 and fy == 1.0) or image is None:
+        return image
+    
+    h, w = image.shape[:2]
+    
+    # 1. 按照系数进行双向缩放
+    resized = cv2.resize(image, (0, 0), fx=fx, fy=fy, interpolation=cv2.INTER_LINEAR)
+    
+    new_h, new_w = resized.shape[:2]
+    
+    # 2. 对图像进行横向补齐或裁剪，使其保持原始宽度 w
+    if new_w < w:
+        total_pad = w - new_w
+        pad_left = total_pad // 2
+        pad_right = total_pad - pad_left
+        resized = cv2.copyMakeBorder(resized, 0, 0, pad_left, pad_right, cv2.BORDER_CONSTANT, value=0)
+    elif new_w > w:
+        total_crop = new_w - w
+        crop_left = total_crop // 2
+        resized = resized[:, crop_left : crop_left + w].copy()
+
+    # 3. 对图像进行纵向补齐或裁剪，使高度保持原始尺寸 h
+    if new_h < h:
+        total_pad = h - new_h
+        pad_top = total_pad // 2
+        pad_bot = total_pad - pad_top
+        resized = cv2.copyMakeBorder(resized, pad_top, pad_bot, 0, 0, cv2.BORDER_CONSTANT, value=0)
+    elif new_h > h:
+        total_crop = new_h - h
+        crop_top = total_crop // 2
+        resized = resized[crop_top : crop_top + h, :].copy()
+        
+    return resized

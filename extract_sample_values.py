@@ -41,7 +41,7 @@ def main():
             try:
                 pixels, contoured, ori_low_high, r_pixels, contoured_r, box_images, cnt_filtered = get_bricks(image_path,
                                                                                                             roi = [0, 1200, 200, 1336], 
-                                                                                                            th_val = 190)
+                                                                                                            th_val = 190, fx=1.0, fy = 0.9909, sort_direction='y')
                 base_name = os.path.splitext(filename)[0]
                 
                 # Save Standard contoured image
@@ -62,17 +62,28 @@ def main():
                     cur_pixels_low = pixels[i][0]
                     label, meta = classify_contour(cnt, box_image_low=warped_low, pixels_low=cur_pixels_low)
                     
-                    # REFINEMENT: Handle Disk Core Sampling
+                    # REFINEMENT: Handle Disk Core Sampling and Step Sampling
                     save_pixels_low = meta["refined_pixels_low"]
                     save_pixels_high = pixels[i][1] # Fallback
                     
+                    if label == 'step_sample':
+                        from utils_II import get_step_pixels_list
+                        save_pixels_high = get_step_pixels_list(warped_high, meta["sampling_boxes"])
+
                     if label == 'disk':
                         from utils_II import get_disk_core_info
                         core_pixels, center, scaled_cnt = get_disk_core_info(low_roi, cnt)
                         save_pixels_low = core_pixels
+                        core_pixels_high, _, _ = get_disk_core_info(high_roi, cnt)
+                        save_pixels_high = core_pixels_high
                         # Update annotation for disk core on the image
                         m_core = float(np.mean(core_pixels)) if core_pixels.size > 0 else 0
                         s_core = float(np.std(core_pixels)) if core_pixels.size > 0 else 0
+                        
+                    if label == 'block':
+                        from utils_II import get_inner_95_pixels
+                        save_pixels_low = get_inner_95_pixels(low_roi, cnt)
+                        save_pixels_high = get_inner_95_pixels(high_roi, cnt)
                         
                         M = cv2.moments(cnt)
                         if M["m00"] != 0:
