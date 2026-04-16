@@ -1,4 +1,37 @@
-## 2026-04-14
+## 2026-04-16
+- **Improved**: Added height-based vertical splitting logic in `get_bricks_watershed` to separate long merged objects (h > 800px: 50/50 split; 600-800px: 429px/remaining split).
+- **Feature**: Created `get_bricks_watershed` in `utils_II.py` to robustly separate touching or overlapping samples using the Watershed algorithm.
+- **Improved**: Updated `extract_sample_values.py` to automatically route the 0409 dataset to the new watershed-based extraction function.
+- **Feature**: Implemented path-specific thresholding in `extract_sample_values.py`.
+- **Improved**: Added `th_type` parameter to `get_bricks` in `utils_II.py` to support `cv2.THRESH_BINARYINV` for the `20260409_TYM-data` dataset.
+- **Improved**: Updated `code_explanation.md` with new function parameter details.
+
+## 2026-04-16
+- Updated **`fit_hl_curve.py`**: Switched logarithmic attenuation representation from $\ln(I/I_0)$ to $\ln(I_0/I)$. This ensures that attenuation values are positive and increase with sample thickness, providing a more intuitive physical interpretation. Adjusted axis limits to match the new value ranges.
+
+## 2026-04-16
+- Integrated **`StandardScaler`** into `decouple_thickness.py`:
+    - Added feature standardization to resolve `LinAlgWarning: Ill-conditioned matrix` for both ratio and polynomial models.
+    - Implemented **Coefficient Unscaling** logic to transform model parameters back to the original physical space for human-readable formula display on plots.
+- Implemented **Multi-Scenario Thickness Analysis** in `decouple_thickness.py`:
+    - Added support for running multiple thickness subset configurations (Case 1: Al6/CuFe4, Case 2: Al8/CuFe6, Case 3: Al10/CuFe8).
+    - Automated step slicing to exclude non-penetrating thick steps from the regression model.
+    - Updated Plot Layout: Optimized to a 1x3 structure containing Model 1 Scatter, Model 1 KDE, and Model 2 KDE.
+    - Added dynamic file naming and console variance reporting for all scenarios.
+
+## 2026-04-15
+- Enhanced **`code_explanation.md`**: Added detailed parameter descriptions and return type information for the feature extraction functions in `decouple_thickness.py`.
+- Implemented **`calculate_mu_m.py`**: A new verification script that calculates the mass attenuation coefficient ($\mu_m$) as a function of thickness for Cu, Fe, and Al samples.
+- Fixed **`fit_hl_curve.py`**: Updated the pixel loading logic to handle the `list` format (used for stepped samples in `.pkl` files), restoring the script's ability to generate H-L trajectory comparison plots.
+- Updated **`code_explanation.md`**: Added documentation for `fit_hl_curve.py` and `calculate_mu_m.py`, and finalized descriptions for the thickness decoupling pipeline.
+
+## 2026-04-16
+- Implemented **Automated Summary Reporting**: `extract_sample_values.py` now generates a formatted `pandas` table at the end of execution.
+- Categorized Metrics: The table provides **Mean** and **STD** for every object:
+    - `step_sample`: 10-step arrays of means and STDs.
+    - `disk`: 2/3 inner core stats.
+    - `block`: 95% inner region stats.
+
 - Fixed **Block Extraction Coordinate Bug**: Re-routed `block` sample erosion (`get_inner_95_pixels`) to execute directly on the global `low_roi` and `high_roi` in `extract_sample_values.py`. This resolves an issue where the global shape contour (`cnt`) was erroneously applied to tiny, locally-warped cropped images, which previously resulted in empty `pixels_low` arrays and mismatched `pixels_high` arrays for `block` objects.
 
 - Fixed **Step Sample Data Extraction**: Corrected a logic flaw where `step_sample` data was being saved as a single global array. It now correctly saves a **list of 10 pixel arrays** (one per step core) in the `.pkl` file, enabling precise thickness-based analysis.

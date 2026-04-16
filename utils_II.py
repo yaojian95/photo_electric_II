@@ -410,17 +410,28 @@ def get_inner_95_pixels(image, cnt):
         
     return image[eroded_mask == 255]
 
-def get_bricks(path = 'all_unnorm.png', roi = [200, -1, 600, 800], th_val = 175, fx=0.99, fy=1.0, sort_direction='y'):
+def get_bricks(path = 'all_unnorm.png', roi = [200, -1, 600, 800], th_val = 175, th_type = cv2.THRESH_BINARY, fx=0.99, fy=1.0, sort_direction='y'):
+    """
+    Main pipeline for batch feature extraction.
+    
+    Parameters:
+        path: Path to the input image.
+        roi: Region of interest [y1, y2, x1, x2].
+        th_val: Threshold value.
+        th_type: OpenCV threshold type (e.g., cv2.THRESH_BINARY, cv2.THRESH_BINARY_INV).
+        fx, fy: Geometric correction factors.
+        sort_direction: Direction for contour sorting ('x' or 'y').
+    """
     data_int8 = cv2.imread(path, cv2.IMREAD_GRAYSCALE)
     # all_unnorm = all_unnorm.astype(np.int8)
     low_ori, high_ori = split_dual_xray_image(data_int8.T, fx=fx, fy=fy)
     low, high = low_ori.T[roi[0]:roi[1], roi[2]:roi[3]], high_ori.T[roi[0]:roi[1], roi[2]:roi[3]]
-    extra_bottom = low[0:10, :]
-    low, high = np.vstack((low, extra_bottom)), np.vstack((high, extra_bottom))
+    # extra_bottom = low[0:10, :]
+    # low, high = np.vstack((low, extra_bottom)), np.vstack((high, extra_bottom))
 
     r_image = compute_R(low, high, I0_low = 195, I0_high = 196, 
                      input = 'images', method = 'a', const = [5, 20])
-    _, thresholded = cv2.threshold(low.copy(), th_val, 255, cv2.THRESH_BINARY)
+    _, thresholded = cv2.threshold(low.copy(), th_val, 255, th_type)
 
     # Find contours using cv2.RETR_TREE and cv2.CHAIN_APPROX_SIMPLE
     contours, hierarchy = cv2.findContours(thresholded, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
@@ -467,6 +478,118 @@ def get_bricks(path = 'all_unnorm.png', roi = [200, -1, 600, 800], th_val = 175,
 
     # plt.imshow(thresholded, cmap='gray')
     # plt.colorbar()
+
+    return pixels, contoured, [low, high], r_pixels, contoured_r, box_images, cnt_filtered
+
+def get_bricks_watershed(path = 'all_unnorm.png', roi = [200, -1, 600, 800], th_val = 175, th_type = cv2.THRESH_BINARY, fx=0.99, fy=1.0, sort_direction='y'):
+    """
+    Watershed-based pipeline for separating touching/overlapping samples.
+    Specifically designed for noisy or crowded 0409 TYM-data.
+    """
+    data_int8 = cv2.imread(path, cv2.IMREAD_GRAYSCALE)
+    if data_int8 is None:
+        raise FileNotFoundError(f"Could not read image at {path}")
+        
+    low_ori, high_ori = split_dual_xray_image(data_int8.T, fx=fx, fy=fy)
+    low, high = low_ori.T[roi[0]:roi[1], roi[2]:roi[3]], high_ori.T[roi[0]:roi[1], roi[2]:roi[3]]
+
+    r_image = compute_R(low, high, I0_low = 195, I0_high = 196, 
+                     input = 'images', method = 'a', const = [5, 20])
+    
+    # 1. Initial Thresholding
+    _, thresholded = cv2.threshold(low.copy(), th_val, 255, th_type)
+    
+    # 2. Morphological Opening to remove noise/tiny bridges
+    kernel = np.ones((3,3), np.uint8)
+    opening = cv2.morphologyEx(thresholded, cv2.MORPH_OPEN, kernel, iterations=1)
+    
+    # 3. Distance Transform to find center of blobs
+    dist_transform = cv2.distanceTransform(opening, cv2.DIST_L2, 5)
+    
+    # 4. Threshold distance transform to get seeds (Sure Foreground)
+    # Threshold at 50% of the max distance to ensure separation
+    _, sure_fg = cv2.threshold(dist_transform, 0.4 * dist_transform.max(), 255, 0)
+    sure_fg = np.uint8(sure_fg)
+    
+    # 5. Find unknown region (Sure Background - Sure Foreground)
+    sure_bg = cv2.dilate(opening, kernel, iterations=3)
+    unknown = cv2.subtract(sure_bg, sure_fg)
+    
+    # 6. Marker labeling
+    _, markers = cv2.connectedComponents(sure_fg)
+    # Add one to all labels so that sure background is not 0, but 1
+    markers = markers + 1
+    # Now, mark the region of unknown with zero
+    markers[unknown == 255] = 0
+    
+    # 7. Watershed on 3-channel image (OpenCV watershed requirement)
+    # Use 'low' as the source image
+    img_bgr = cv2.cvtColor(low, cv2.COLOR_GRAY2BGR)
+    markers = cv2.watershed(img_bgr, markers)
+    
+    # 8. Reconstruct contours from markers
+    # markers > 1 are objects
+    cnt_filtered = []
+    num_objects = np.max(markers)
+    for label in range(2, num_objects + 1):
+        obj_mask = np.zeros(low.shape, dtype=np.uint8)
+        obj_mask[markers == label] = 255
+        # Find contours of this specific object
+        cnts, _ = cv2.findContours(obj_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        for c in cnts:
+            if cv2.contourArea(c) > 100:
+                x, y, w, h = cv2.boundingRect(c)
+                
+                # Height-based splitting logic requested by user
+                if h > 800:
+                    y_split = y + h // 2
+                    # Part 1: Top half
+                    mask1 = np.zeros(low.shape, dtype=np.uint8)
+                    mask1[y:y_split, x:x+w] = obj_mask[y:y_split, x:x+w]
+                    cnts1, _ = cv2.findContours(mask1, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                    cnt_filtered.extend([c1 for c1 in cnts1 if cv2.contourArea(c1) > 100])
+                    # Part 2: Bottom half
+                    mask2 = np.zeros(low.shape, dtype=np.uint8)
+                    mask2[y_split:y+h, x:x+w] = obj_mask[y_split:y+h, x:x+w]
+                    cnts2, _ = cv2.findContours(mask2, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                    cnt_filtered.extend([c2 for c2 in cnts2 if cv2.contourArea(c2) > 100])
+                    
+                elif 600 < h <= 800:
+                    y_split = y + 429
+                    # Part 1: First 429 lines
+                    mask1 = np.zeros(low.shape, dtype=np.uint8)
+                    mask1[y:y_split, x:x+w] = obj_mask[y:y_split, x:x+w]
+                    cnts1, _ = cv2.findContours(mask1, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                    cnt_filtered.extend([c1 for c1 in cnts1 if cv2.contourArea(c1) > 100])
+                    # Part 2: Remaining lines
+                    mask2 = np.zeros(low.shape, dtype=np.uint8)
+                    mask2[y_split:y+h, x:x+w] = obj_mask[y_split:y+h, x:x+w]
+                    cnts2, _ = cv2.findContours(mask2, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                    cnt_filtered.extend([c2 for c2 in cnts2 if cv2.contourArea(c2) > 100])
+                    
+                else:
+                    cnt_filtered.append(c)
+    
+    # Return to normal pipeline logic
+    cnt_filtered = sort_contours(cnt_filtered, direction=sort_direction)
+    
+    contoured = cv2.cvtColor(low, cv2.COLOR_GRAY2BGR).copy()
+    contoured_r = r_image.copy()
+    pixels = []; r_pixels = []
+    box_images = []
+
+    for i, cnt in enumerate(cnt_filtered):
+        pixels_i_low, pixels_i_high, r_values_i = get_contour_pixels(low, cnt), get_contour_pixels(high, cnt), get_contour_pixels(r_image, cnt)
+        pixels.append([pixels_i_low, pixels_i_high]); r_pixels.append(r_values_i)
+        
+        box_low, box_high, box_r= get_contour_box_image(low, cnt, margin = 0), get_contour_box_image(high, cnt, margin = 0), get_contour_box_image(r_image, cnt, margin = 0)
+        box_images.append([box_low, box_high, box_r])
+
+        cv2.drawContours(contoured, [cnt], -1, (0, 0, 255), 1)
+        M = cv2.moments(cnt)
+        if M["m00"] != 0:
+            cX, cY = int(M["m10"] / M["m00"]), int(M["m01"] / M["m00"])
+            cv2.putText(contoured, f"#{i}", (cX - 15, cY - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 0), 1)
 
     return pixels, contoured, [low, high], r_pixels, contoured_r, box_images, cnt_filtered
 

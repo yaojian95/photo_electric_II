@@ -16,7 +16,8 @@ This workspace focus on validating XRT image quality and extracting standard sam
     - `get_step_pixels_list`: Extracts individual arrays for each of the 10 step cores.
     - `get_disk_core_info`: Calculates core pixels and boundary for centroid-based contour scaling.
     - `get_inner_95_pixels`: Helper for general 95% area erosion.
-    - `get_bricks`: Main pipeline for batch feature extraction.
+    - `get_bricks`: Main pipeline for batch feature extraction. Supports configurable thresholding methods (`th_type`).
+    - `get_bricks_watershed`: Enhanced pipeline using Distance Transform and Watershed algorithm to separate touching samples. Includes vertical splitting logic for long objects (h > 800px: equal split; 600-800px: 429px split).
     - `check_step_gradient`: Analyzes row-wise mean gradients using Pearson Correlation and dynamic thresholds.
     - `warp_straighten`: Aligns tilted objects using perspective transforms.
     - `get_10_step_means`: Multi-axis core sampling (80% width, 60% height).
@@ -33,16 +34,43 @@ This workspace focus on validating XRT image quality and extracting standard sam
 ### `decouple_thickness.py`
 - **Purpose**: Fits a multivariate polynomial regression model to decouple thickness from dual-energy XRT signals, mapping them directly to Equivalent Atomic Numbers (Z).
 - **Functions**:
-    - `extract_feature_HL_ratio(L, H)`: Generates input features `[H/L, (H/L)^2]` to model the ratio-based non-linear transformation. 
+    - `extract_feature_HL_ratio(L, H)`: Generates input features `[H/L, (H/L)^2]` to model the ratio-based non-linear transformation.
+        - 参数 `L`: 低能像素值 (ndarray)；`H`: 高能像素值 (ndarray)。
+        - 返回: 包含两列 `[ratio, ratio^2]` 的特征矩阵。
     - `extract_feature_poly(L, H)`: Generates simple base features `[L, H]` for feeding into `PolynomialFeatures(2)` which creates `[L, H, L^2, H^2, LH]`.
+        - 参数 `L`: 低能像素值 (ndarray)；`H`: 高能像素值 (ndarray)。
+        - 返回: 包含 `[L, H]` 的特征矩阵。
 - **Workflow**:
     1. Loads step-sample data from `results/20260331/pixel_values/` for Cu, Fe, and Al.
     2. Assigns target atomic numbers: Cu=29, Fe=26, Al=13.
-    3. Fits Ridge regression models across gradients of thicknesses without giving thickness as a feature, forcing the models to learn parameters that invariant to thickness changes.
-    4. Plots the results to visualize thickness decoupling via predicted Z variance.
+    3. Iteratively fits Ridge regression models for three thickness scenarios (Al 6/8/10 steps) to evaluate how step inclusion impacts thickness decoupling consistency.
+    4. Plots results in a 1x3 grid (M1 Scatter, M1 KDE, M2 KDE) with automated formula annotation and per-material legends.
+    5. **Optimization**: Incorporates `StandardScaler` in the regression pipelines to resolve ill-conditioned matrix issues, with specialized unscaling logic to maintain physical meaning in the printed formulas.
+
+### `calculate_mu_m.py`
+- **Purpose**: Calculates the mass attenuation coefficient ($\mu_m$) for standard samples (Cu, Fe, Al) using the exponential attenuation law.
+- **Workflow**:
+    1. Loads mean pixel data and solves for $\mu_m = -\ln(I/I_0) / (\rho \cdot t)$.
+    2. Uses defined densities: Cu=8.96, Fe=7.87, Al=2.70 g/cm³.
+    3. Analyzes the consistency of $\mu_m$ across different thickness steps to verify beam hardening effects.
+    4. Generates comparison plots (`mu_m_analysis.png`) across voltages.
 
 
-### 2026-04-10
+### `fit_hl_curve.py`
+- **Purpose**: Explorer script that performs a 2x3 comprehensive grid analysis for each voltage level.
+- **Workflow**:
+    1. **Row 1 (Raw Intensity)**: Fits $H = f(L)$ and plots $t$ vs $L$, $t$ vs $H$ with **standard deviation error bars** to visualize sensor noise.
+    2. **Row 2 (Log Energy)**: Fits $\ln(I_0/H) = f(\ln(I_0/L))$ and plots $t$ vs $\ln(I_0/L)$, $t$ vs $\ln(I_0/H)$ to visualize attenuation.
+    3. **Adaptive Linearity Analysis**: Implements an iterative algorithm to find the maximum thickness range that maintains a high-quality linear fit ($R^2 > 0.99$).
+    4. **Range Annotation**: Identified that Cu/Fe typically stop being linear around 8-12mm, while Al remains linear across the full 40mm range.
+    5. Handles $I_0 = 204.0$ and applies a display offset for Al samples.
+
+
+
+
+
+
+## 2026-04-10
 - Updated `txt2img_TYM.py` to centralize all generated images into a single `converted_results` folder.
 - Updated `txt2img_TYM.py` to skip files containing "offset" or "air" in their filenames (case-insensitive).
 
