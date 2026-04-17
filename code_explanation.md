@@ -16,8 +16,10 @@ This workspace focus on validating XRT image quality and extracting standard sam
     - `get_step_pixels_list`: Extracts individual arrays for each of the 10 step cores.
     - `get_disk_core_info`: Calculates core pixels and boundary for centroid-based contour scaling.
     - `get_inner_95_pixels`: Helper for general 95% area erosion.
-    - `get_bricks`: Main pipeline for batch feature extraction. Supports configurable thresholding methods (`th_type`).
-    - `get_bricks_watershed`: Enhanced pipeline using Distance Transform and Watershed algorithm to separate touching samples. Includes vertical splitting logic for long objects (h > 800px: equal split; 600-800px: 429px split).
+    - `get_bricks`: Main pipeline for batch feature extraction. Supports configurable thresholding methods (`th_type`) and vertical scaling (`vscale`).
+        - 参数 `path`: 图像路径 (str)；`roi`: 感兴趣区域 [y1, y2, x1, x2] (list)；`th_val`: 阈值 (int)；`th_type`: 阈值类型 (cv2)；`fx`/`fy`: 畸变校正系数 (float)；`vscale`: 纵向缩放系数 (float, 默认1.0)；`vscale_interp`: 缩放插值方法 (cv2, 默认INTER_LINEAR)。
+    - `get_bricks_watershed`: Enhanced pipeline using Distance Transform and Watershed algorithm. Supports the same scaling parameters as `get_bricks`.
+        - 参数同 `get_bricks`。
     - `check_step_gradient`: Analyzes row-wise mean gradients using Pearson Correlation and dynamic thresholds.
     - `warp_straighten`: Aligns tilted objects using perspective transforms.
     - `get_10_step_means`: Multi-axis core sampling (80% width, 60% height).
@@ -44,8 +46,16 @@ This workspace focus on validating XRT image quality and extracting standard sam
     1. Loads step-sample data from `results/20260331/pixel_values/` for Cu, Fe, and Al.
     2. Assigns target atomic numbers: Cu=29, Fe=26, Al=13.
     3. Iteratively fits Ridge regression models for three thickness scenarios (Al 6/8/10 steps) to evaluate how step inclusion impacts thickness decoupling consistency.
-    4. Plots results in a 1x3 grid (M1 Scatter, M1 KDE, M2 KDE) with automated formula annotation and per-material legends.
-    5. **Optimization**: Incorporates `StandardScaler` in the regression pipelines to resolve ill-conditioned matrix issues, with specialized unscaling logic to maintain physical meaning in the printed formulas.
+    4. Plots results in a **4x3 grid**:
+        - **Row 0**: Global performance overview.
+        - **Row 1**: Model 1 distribution breakdown per material.
+        - **Row 2**: Model 2 distribution breakdown per material.
+        - **Row 3**: Systematic bias analysis (Mean Predicted Z vs Step Index).
+    5. **Step-Wise Visualization**: KDE plots include granular distributions per thickness level.
+    6. **Mean Bias Analysis**: Row 3 subplots visualize the drift in mean prediction across physical thickness steps, identifying systematic inaccuracies in each model.
+    7. **Baseline Reference**: Dashed black lines (distributions) and dotted lines (means) provide ground truth context.
+    8. **Accuracy Summary**: Generates `Z_accuracy_summary_comparison.png` at the end to show global stability trends.
+    8. **Optimization**: Incorporates `StandardScaler` with unscaling logic for physically accurate formula display.
 
 ### `calculate_mu_m.py`
 - **Purpose**: Calculates the mass attenuation coefficient ($\mu_m$) for standard samples (Cu, Fe, Al) using the exponential attenuation law.
@@ -69,6 +79,14 @@ This workspace focus on validating XRT image quality and extracting standard sam
 
 
 
+
+## 2026-04-17
+- **Optimization**: Optimized `extract_sample_values.py` for 0409 dataset. When filenames contain "270us", it now uses `roi_270` and performs a 1.5x vertical compression using `cv2.INTER_AREA` interpolation before subsequent processing.
+- **Improved**: Added `vscale` and `vscale_interp` parameters to `get_bricks` and `get_bricks_watershed` in `utils_II.py` to support flexible image scaling after ROI selection.
+
+## 2026-04-16
+- Updated `txt2img_TYM.py` to centralize all generated images into a single `converted_results` folder.
+- Updated `txt2img_TYM.py` to skip files containing "offset" or "air" in their filenames (case-insensitive).
 
 ## 2026-04-10
 - Updated `txt2img_TYM.py` to centralize all generated images into a single `converted_results` folder.

@@ -1,3 +1,7 @@
+## 2026-04-17
+- [ ] StandardScaler -> Ridge
+
+## 
 -[x] apply distortion correction between high and low energy images
 -[x] std大于某个值的方形认为是阶梯样
 -[ ] 输入的应该是16位的图片， 在保存high low image的时候可以也保存16位的

@@ -19,7 +19,9 @@ def main():
     # data_dir = r'E:\multi_source_info\data_dir\20260407_Sample_test'
     # roi = [0, 1200, 200, 1336]; th_val = 190; fy = 0.9909
     data_dir = r'E:\multi_source_info\data_dir\20260409_TYM-data\TYM_test'
-    roi = [960, 1900, 0, -1]; th_val = 160; fy = 1
+    # data_dir = r'E:\multi_source_info\data_dir\20260409_TYM-data\TYM_converted_results'
+    roi_125 = [960, 1900, 0, -1]; th_val_125 = 160; fy = 1 #fy单独控制高能图像的校准比例
+    roi_270 = [687, 3000, 0, -1]; th_val_270 = 151; fy = 1
 
     # Path-specific threshold method: Use BINARY_INV for 0409 TYM-data, otherwise BINARY
     th_type = cv2.THRESH_BINARY_INV if "0409" in data_dir else cv2.THRESH_BINARY
@@ -27,7 +29,7 @@ def main():
     fn_get_bricks = get_bricks_watershed if "0409" in data_dir else get_bricks
     
     # Extract folder name from data_dir to create a subfolder in results
-    folder_name = os.path.basename(data_dir)
+    folder_name = os.path.basename(data_dir.rstrip('\\'))
     output_dir = os.path.join('results', folder_name)
     
     if not os.path.exists(output_dir):
@@ -44,15 +46,35 @@ def main():
     all_summaries = []
 
     for filename in tif_files:
+            # DYNAMIC PARAMETERS: Handle specific 0409 270us compression
+            roi = roi_125
+            th_val = th_val_125
+            vscale = 1.0
+            vinterp = cv2.INTER_LINEAR
+            
+            if "0409" in data_dir and "270us" in filename.lower():
+                roi = roi_270
+                vscale = 1.0 / 2.7
+                vinterp = cv2.INTER_AREA
+                th_val = th_val_270
+            elif "0409" in data_dir:
+                roi = roi_125 # Default for other 0409 data
+                th_val = th_val_125
+
             image_path = os.path.join(data_dir, filename)
             
-            print(f"Processing {filename}...")
+            print(f"Processing {filename} (vscale={vscale:.2f})...")
             
             # Using get_bricks with synchronized params from standard_sample.py
             try:
                 pixels, contoured, ori_low_high, r_pixels, contoured_r, box_images, cnt_filtered = fn_get_bricks(image_path,
-                                                                                                            roi = roi, 
-                                                                                                            th_val = th_val, th_type = th_type, fx=1.0, fy = fy, sort_direction='y')
+                                                                                                             roi = roi, 
+                                                                                                             th_val = th_val, 
+                                                                                                             th_type = th_type, 
+                                                                                                             fx=1.0, fy=fy, 
+                                                                                                             sort_direction='y',
+                                                                                                             vscale=vscale,
+                                                                                                             vscale_interp=vinterp)
                 base_name = os.path.splitext(filename)[0]
                 
                 # Save Standard contoured image

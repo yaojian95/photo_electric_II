@@ -1,3 +1,7 @@
+## 2026-04-17
+- **Optimization**: Optimized `extract_sample_values.py` for 0409 dataset. When filenames contain "270us", it now uses `roi_270` and performs a 1.5x vertical compression using `cv2.INTER_AREA` interpolation before subsequent processing.
+- **Improved**: Added `vscale` and `vscale_interp` parameters to `get_bricks` and `get_bricks_watershed` in `utils_II.py` to support flexible image scaling after ROI selection.
+
 ## 2026-04-16
 - **Improved**: Added height-based vertical splitting logic in `get_bricks_watershed` to separate long merged objects (h > 800px: 50/50 split; 600-800px: 429px/remaining split).
 - **Feature**: Created `get_bricks_watershed` in `utils_II.py` to robustly separate touching or overlapping samples using the Watershed algorithm.
@@ -9,7 +13,26 @@
 ## 2026-04-16
 - Updated **`fit_hl_curve.py`**: Switched logarithmic attenuation representation from $\ln(I/I_0)$ to $\ln(I_0/I)$. This ensures that attenuation values are positive and increase with sample thickness, providing a more intuitive physical interpretation. Adjusted axis limits to match the new value ranges.
 
-## 2026-04-16
+## 2026-04-17
+- Expanded **`decouple_thickness.py`** Visualization to **4x3 Grid**:
+    - Added **Systematic Bias Analysis** (Row 3): Plots mean predicted Z vs Step Index for Al, Fe, and Cu, comparing Model 1 and Model 2 directly.
+    - Preserved high-resolution KDE distributions and global overview in Rows 0-2.
+- Added **Accuracy vs Voltage Summary Plot**:
+    - Implemented a global data collection mechanism to aggregate `std` metrics across all voltage/scenario test cases.
+    - Generated a comprehensive 1x3 comparison chart (`Z_accuracy_summary_comparison.png`) to visualize decoupled Z stability trends.
+- Adjusted **Intensity Threshold** in `decouple_thickness.py`:
+    - Lowered the valid signal threshold from 10 to 1, enabling the analysis of thicker samples that are closer to the sensor's noise floor.
+- Expanded **`decouple_thickness.py`** Visualization to **3x3 Grid**:
+    - **Row 0**: Global Performance Overview (Scatter, M1 KDE, M2 KDE).
+    - **Row 1**: Model 1 Material Breakdown (Al, Fe, Cu step-wise).
+    - **Row 2**: Model 2 Material Breakdown (Al, Fe, Cu step-wise).
+    - Added granular legends for each material-specific subplot to explicitly identify thickness steps.
+- Optimized **Thickness Color Gradients** in `decouple_thickness.py`:
+    - Implemented **Dynamic Color Normalization**: Ensures full color spectrum usage regardless of step count.
+    - Improved **Visual Clarity**: Increased alpha (0.7) and linewidth (1.0) for step curves; introduced a dashed black baseline for total distributions.
+- Enhanced **`decouple_thickness.py`** Visualization:
+    - Added **Step-Wise KDE Analysis**: Distributions are now plotted for each individual thickness step using color gradients (e.g., light to dark shade representing thin to thick).
+    - Refactored data tracking: Improved pixel-level labeling to maintain thickness awareness during global regression and sampling.
 - Integrated **`StandardScaler`** into `decouple_thickness.py`:
     - Added feature standardization to resolve `LinAlgWarning: Ill-conditioned matrix` for both ratio and polynomial models.
     - Implemented **Coefficient Unscaling** logic to transform model parameters back to the original physical space for human-readable formula display on plots.

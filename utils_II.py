@@ -410,7 +410,7 @@ def get_inner_95_pixels(image, cnt):
         
     return image[eroded_mask == 255]
 
-def get_bricks(path = 'all_unnorm.png', roi = [200, -1, 600, 800], th_val = 175, th_type = cv2.THRESH_BINARY, fx=0.99, fy=1.0, sort_direction='y'):
+def get_bricks(path = 'all_unnorm.png', roi = [200, -1, 600, 800], th_val = 175, th_type = cv2.THRESH_BINARY, fx=0.99, fy=1.0, sort_direction='y', vscale=1.0, vscale_interp=cv2.INTER_LINEAR):
     """
     Main pipeline for batch feature extraction.
     
@@ -421,11 +421,21 @@ def get_bricks(path = 'all_unnorm.png', roi = [200, -1, 600, 800], th_val = 175,
         th_type: OpenCV threshold type (e.g., cv2.THRESH_BINARY, cv2.THRESH_BINARY_INV).
         fx, fy: Geometric correction factors.
         sort_direction: Direction for contour sorting ('x' or 'y').
+        vscale: Vertical scaling factor (e.g. 1/1.5 for 1.5x compression).
+        vscale_interp: Interpolation method for vertical scaling (e.g. cv2.INTER_AREA).
     """
     data_int8 = cv2.imread(path, cv2.IMREAD_GRAYSCALE)
-    # all_unnorm = all_unnorm.astype(np.int8)
+    if data_int8 is None:
+        raise FileNotFoundError(f"Could not read image at {path}")
+
     low_ori, high_ori = split_dual_xray_image(data_int8.T, fx=fx, fy=fy)
     low, high = low_ori.T[roi[0]:roi[1], roi[2]:roi[3]], high_ori.T[roi[0]:roi[1], roi[2]:roi[3]]
+
+    # Apply vertical scaling if requested (AFTER ROI selection to keep ROI coords valid)
+    if vscale != 1.0:
+        low = cv2.resize(low, (low.shape[1], int(low.shape[0] * vscale)), interpolation=vscale_interp)
+        high = cv2.resize(high, (high.shape[1], int(high.shape[0] * vscale)), interpolation=vscale_interp)
+
     # extra_bottom = low[0:10, :]
     # low, high = np.vstack((low, extra_bottom)), np.vstack((high, extra_bottom))
 
@@ -481,10 +491,20 @@ def get_bricks(path = 'all_unnorm.png', roi = [200, -1, 600, 800], th_val = 175,
 
     return pixels, contoured, [low, high], r_pixels, contoured_r, box_images, cnt_filtered
 
-def get_bricks_watershed(path = 'all_unnorm.png', roi = [200, -1, 600, 800], th_val = 175, th_type = cv2.THRESH_BINARY, fx=0.99, fy=1.0, sort_direction='y'):
+def get_bricks_watershed(path = 'all_unnorm.png', roi = [200, -1, 600, 800], th_val = 175, th_type = cv2.THRESH_BINARY, fx=0.99, fy=1.0, sort_direction='y', vscale=1.0, vscale_interp=cv2.INTER_LINEAR):
     """
     Watershed-based pipeline for separating touching/overlapping samples.
     Specifically designed for noisy or crowded 0409 TYM-data.
+
+    Parameters:
+        path: Path to the input image.
+        roi: Region of interest [y1, y2, x1, x2].
+        th_val: Threshold value.
+        th_type: OpenCV threshold type.
+        fx, fy: Geometric correction factors.
+        sort_direction: 'x' or 'y'.
+        vscale: Vertical scaling factor.
+        vscale_interp: Interpolation method.
     """
     data_int8 = cv2.imread(path, cv2.IMREAD_GRAYSCALE)
     if data_int8 is None:
@@ -492,6 +512,11 @@ def get_bricks_watershed(path = 'all_unnorm.png', roi = [200, -1, 600, 800], th_
         
     low_ori, high_ori = split_dual_xray_image(data_int8.T, fx=fx, fy=fy)
     low, high = low_ori.T[roi[0]:roi[1], roi[2]:roi[3]], high_ori.T[roi[0]:roi[1], roi[2]:roi[3]]
+
+    # Apply vertical scaling if requested (AFTER ROI selection to keep ROI coords valid)
+    if vscale != 1.0:
+        low = cv2.resize(low, (low.shape[1], int(low.shape[0] * vscale)), interpolation=vscale_interp)
+        high = cv2.resize(high, (high.shape[1], int(high.shape[0] * vscale)), interpolation=vscale_interp)
 
     r_image = compute_R(low, high, I0_low = 195, I0_high = 196, 
                      input = 'images', method = 'a', const = [5, 20])

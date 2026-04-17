@@ -3,31 +3,39 @@ import numpy as np
 import matplotlib.pyplot as plt
 import os
 
-def load_dual_step_pixels(file_path):
+def load_dual_step_pixels(file_path, flip=False):
+    """Loads low and high energy pixels, with optional flipping for thickness alignment."""
     with open(file_path, 'rb') as f:
         data = pickle.load(f)
-    if not isinstance(data['pixels_low'], list):
+    low = data['pixels_low']
+    high = data['pixels_high']
+    if not isinstance(low, list):
         raise ValueError(f"File {file_path} does not contain a list of steps.")
-    return data['pixels_low'], data['pixels_high']
+    
+    if flip:
+        return low[::-1], high[::-1]
+    return low, high
 
-def plot_all_means(low1, high1, low2, high2, low3, high3, label1, label2, label3, filename):
+def plot_adaptive_means(configs, title_suffix, save_path):
+    """Plots means for a variable number of datasets (Low as solid, High as dashed)."""
     plt.figure(figsize=(12, 7))
     steps = np.arange(1, 11)
     
-    m_low1, m_high1 = [np.mean(p) for p in low1], [np.mean(p) for p in high1]
-    m_low2, m_high2 = [np.mean(p) for p in low2], [np.mean(p) for p in high2]
-    m_low3, m_high3 = [np.mean(p) for p in low3], [np.mean(p) for p in high3]
+    # Use a standard color cycle
+    colors = plt.cm.tab10(np.linspace(0, 1, 10))
     
-    plt.plot(steps, m_low1, 'o-', color='blue', label=f'{label1} - Low')
-    plt.plot(steps, m_high1, 's--', color='blue', label=f'{label1} - High', alpha=0.6)
+    for i, cfg in enumerate(configs):
+        low, high = cfg['data']
+        label = cfg['label']
+        color = colors[i % 10]
+        
+        m_low = [np.mean(p) for p in low]
+        m_high = [np.mean(p) for p in high]
+        
+        plt.plot(steps, m_low, 'o-', color=color, label=f'{label} - Low')
+        plt.plot(steps, m_high, 's--', color=color, label=f'{label} - High', alpha=0.6)
     
-    plt.plot(steps, m_low2, 'o-', color='orange', label=f'{label2} - Low')
-    plt.plot(steps, m_high2, 's--', color='orange', label=f'{label2} - High', alpha=0.6)
-    
-    plt.plot(steps, m_low3, 'o-', color='green', label=f'{label3} - Low')
-    plt.plot(steps, m_high3, 's--', color='green', label=f'{label3} - High', alpha=0.6)
-    
-    plt.title('Cu_Step: Unified 3-Way Mean Intensity Comparison', fontsize=15)
+    plt.title(f'Cu_Step: {title_suffix} Mean Comparison', fontsize=15)
     plt.xlabel('Thickness Step (1-10)')
     plt.ylabel('Mean Intensity')
     plt.xticks(steps)
@@ -35,86 +43,90 @@ def plot_all_means(low1, high1, low2, high2, low3, high3, label1, label2, label3
     plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
     plt.tight_layout()
     
-    plt.savefig(filename)
-    print(f"Unified plot saved to {filename}")
+    plt.savefig(save_path)
+    print(f"Summary plot saved to {save_path}")
 
-def plot_intensity_grid(px1, px2, px3, title_prefix, filename, label1, label2, label3):
+def plot_adaptive_hist_grid(configs, channel_name, title_suffix, save_path):
+    """Plots density histograms for all datasets in a 2x5 grid."""
     fig, axes = plt.subplots(2, 5, figsize=(22, 10), constrained_layout=True)
     axes = axes.flatten()
     
+    colors = plt.cm.tab10(np.linspace(0, 1, 10))
+    
     for i in range(10):
         ax = axes[i]
-        d1, d2, d3 = px1[i], px2[i], px3[i]
         
-        # Calculate common bin range
-        v_min = min(np.min(d1), np.min(d2), np.min(d3))
-        v_max = max(np.max(d1), np.max(d2), np.max(d3))
+        all_data_for_step = []
+        for j, cfg in enumerate(configs):
+            # idx 0 is low, idx 1 is high
+            data_step = cfg['data'][0 if channel_name.lower()=='low' else 1][i]
+            all_data_for_step.append(data_step)
+            
+        # Calculate common bin range for this step
+        v_min = min(np.min(d) for d in all_data_for_step)
+        v_max = max(np.max(d) for d in all_data_for_step)
         bins = np.linspace(v_min, v_max, 50)
         
-        ax.hist(d1, bins=bins, alpha=0.4, label=label1, color='blue', density=True)
-        ax.hist(d2, bins=bins, alpha=0.4, label=label2, color='orange', density=True)
-        ax.hist(d3, bins=bins, alpha=0.4, label=label3, color='green', density=True)
+        for j, cfg in enumerate(configs):
+            ax.hist(all_data_for_step[j], bins=bins, alpha=0.4, 
+                    label=cfg['label'], color=colors[j % 10], density=True)
         
         ax.set_title(f'Step {i+1}')
         if i == 0: ax.legend(loc='upper right', prop={'size': 9})
         ax.set_xlabel('Intensity')
     
-    fig.suptitle(f'Cu_Step: {title_prefix} 3-Way Histogram Comparison', fontsize=18)
-    plt.savefig(filename)
-    print(f"Histogram grid saved to {filename}")
+    fig.suptitle(f'Cu_Step ({title_suffix}): {channel_name} Energy Histogram Comparison', fontsize=18)
+    plt.savefig(save_path)
+    print(f"Histogram grid saved to {save_path}")
 
-def main():
-    # Define paths
-    path1 = r'results/20260331/pixel_values/160kV_4mA_step_sample_0_data.pkl'
-    path2 = r'results/20260407_Sample_test/pixel_values/Sample_160kV_test1_step_sample_1_data.pkl'
-    path3 = r'results/TYM_test/pixel_values/160kv-2mA-125us-0.5pF-disc-post_calib_step_sample_9_data.pkl'
+def run_comparison(configs_desc, title_suffix, prefix):
+    """Orchestrates the loading and plotting for a given set of comparisons."""
+    configs = []
+    for cd in configs_desc:
+        print(f"Loading {cd['path']}...")
+        # Auto-detect flip if not provided: usually Step 1 is the most intense
+        low_raw, _ = load_dual_step_pixels(cd['path'], flip=False)
+        should_flip = cd.get('flip')
+        if should_flip is None:
+            if np.mean(low_raw[0]) < np.mean(low_raw[-1]):
+                print(f"  --> Auto-detected opposite gradient for {cd['label']}. Flipping.")
+                should_flip = True
+            else:
+                should_flip = False
+        
+        low, high = load_dual_step_pixels(cd['path'], flip=should_flip)
+        configs.append({'data': (low, high), 'label': cd['label']})
     
-    label1, label2, label3 = "银山设备 (0331)", "院里设备 (0407)", "同源微 (0409)"
-    
-    # Ensure output directory exists
     os.makedirs('results/Tube_comparison', exist_ok=True)
     
-    print(f"Loading {path1}...")
-    low1, high1 = load_dual_step_pixels(path1)
+    # 1. Unified Mean Plot
+    plot_adaptive_means(configs, title_suffix, f'results/Tube_comparison/{prefix}_means.png')
     
-    print(f"Loading {path2}...")
-    low2, high2 = load_dual_step_pixels(path2)
-    
-    print(f"Loading {path3}...")
-    low3, high3 = load_dual_step_pixels(path3)
-    
-    # Align thickness:
-    # Dataset 1 (0331) is reference (Step 1 is brightest). 
-    # Dataset 2 (0407) was found to be opposite.
-    low2_aligned = low2[::-1]
-    high2_aligned = high2[::-1]
-    
-    # For Dataset 3 (0409), check first few values or just provide alignment if requested.
-    # Usually these samples follow a consistent pattern. If Step 1 is darkest, flip it.
-    if np.mean(low3[0]) < np.mean(low3[-1]):
-        print("Detected opposite gradient in Dataset 3 (0409). Aligned.")
-        low3_aligned = low3[::-1]
-        high3_aligned = high3[::-1]
-    else:
-        low3_aligned = low3
-        high3_aligned = high3
-    
+    # 2. Histograms
+    plot_adaptive_hist_grid(configs, "Low", title_suffix, f'results/Tube_comparison/{prefix}_hist_low.png')
+    plot_adaptive_hist_grid(configs, "High", title_suffix, f'results/Tube_comparison/{prefix}_hist_high.png')
+
+def main():
+    # Setup plotting aesthetics for Chinese text
     plt.rcParams['font.sans-serif'] = ['SimHei'] 
     plt.rcParams['axes.unicode_minus'] = False
-    
-    plot_all_means(low1, high1, low2_aligned, high2_aligned, low3_aligned, high3_aligned, 
-                   label1, label2, label3, 'results/Tube_comparison/CuStep_Summary_Means.png')
-    
-    plot_intensity_grid(low1, low2_aligned, low3_aligned, 
-                        "Low Energy", 'results/Tube_comparison/CuStep_Comparison_Hist_Low.png', 
-                        label1, label2, label3)
-    
-    plot_intensity_grid(high1, high2_aligned, high3_aligned, 
-                        "High Energy", 'results/Tube_comparison/CuStep_Comparison_Hist_High.png', 
-                        label1, label2, label3)
 
-if __name__ == "__main__":
-    main()
+    # TASK 1: Compare the three distinct equipment setups
+    print("\n=== RUNNING 3-WAY EQUIPMENT COMPARISON ===")
+    configs_3way = [
+        {"path": r'results/20260331/pixel_values/160kV_4mA_step_sample_0_data.pkl', "label": "银山设备 (0331)"},
+        {"path": r'results/20260407_Sample_test/pixel_values/Sample_160kV_test1_step_sample_1_data.pkl', "label": "院里设备 (0407)"},
+        {"path": r'results/TYM_test/pixel_values/160kv-2mA-125us-0.5pF-disc-post_calib_step_sample_9_data.pkl', "label": "同源微 (0409)"}
+    ]
+    run_comparison(configs_3way, "3-Way Equipment", "CuStep_3Way")
+
+    # TASK 2: Compare different exposure times (125us vs 270us) for TYM
+    print("\n=== RUNNING EXPOSURE TIME COMPARISON (125us vs 270us) ===")
+    configs_exposure = [
+        {"path": r'results/TYM_test/pixel_values/160kv-2mA-125us-0.5pF-disc-post_calib_step_sample_9_data.pkl', "label": "125us (TYM)"},
+        {"path": r'results/TYM_test/pixel_values/160kv-2mA-270us-0.5pF-disc-post_calib_step_sample_9_data.pkl', "label": "270us (TYM)"}
+    ]
+    run_comparison(configs_exposure, "Exposure Time", "TYM_Exposure")
 
 if __name__ == "__main__":
     main()

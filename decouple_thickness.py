@@ -24,7 +24,9 @@ output_dir = 'results/thickness_decoupling/z_decouple'
 os.makedirs(output_dir, exist_ok=True)
 
 # 定义要测试的模型形式
-# 方案 1: z(H, L) = a(H/L)^2 + b(H/L) + c
+# 方案 1: z(H, L) = a(H/L)^2 + b(H/L) + c# 用于汇总各阶段结果的数据列表
+results_data = []
+
 def extract_feature_HL_ratio(L, H):
     ratio = H / L
     return np.column_stack([ratio, ratio**2])
@@ -40,6 +42,7 @@ for voltage in voltages:
         X_ratio_list = []
         X_poly_list = []
         y_list = []
+        step_id_list = []
         
         # 1. 加载数据并组合
         for idx, Z in material_Z.items():
@@ -58,34 +61,49 @@ for voltage in voltages:
             # 根据场景筛选厚度阶梯 (如果是阶梯样本的 list 格式)
             n_target_steps = al_steps if Z == 13 else cufe_steps
             
+            m_X_ratio = []
+            m_X_poly = []
+            m_y = []
+            m_step = []
+
             if isinstance(L_data, list):
-                # 只取前 n 个阶梯（通常是穿透更好的较薄阶梯）
-                L = np.concatenate(L_data[:n_target_steps]).astype(np.float32)
-                H = np.concatenate(H_data[:n_target_steps]).astype(np.float32)
+                for s_idx in range(n_target_steps):
+                    l_s = L_data[s_idx].astype(np.float32)
+                    h_s = H_data[s_idx].astype(np.float32)
+                    # 过滤无效背景像素 (阈值降低至 1 以观察极厚层)
+                    valid = (l_s > 1) & (h_s > 1) & (l_s < 250) & (h_s < 250)
+                    l_s, h_s = l_s[valid], h_s[valid]
+                    if len(l_s) == 0: continue
+
+                    m_X_ratio.append(extract_feature_HL_ratio(l_s, h_s))
+                    m_X_poly.append(extract_feature_poly(l_s, h_s))
+                    m_y.append(np.full(len(l_s), Z))
+                    m_step.append(np.full(len(l_s), s_idx))
             else:
                 L = L_data.astype(np.float32)
                 H = H_data.astype(np.float32)
+                valid = (L > 1) & (H > 1) & (L < 250) & (H < 250)
+                L, H = L[valid], H[valid]
+                m_X_ratio.append(extract_feature_HL_ratio(L, H))
+                m_X_poly.append(extract_feature_poly(L, H))
+                m_y.append(np.full(len(L), Z))
+                m_step.append(np.full(len(L), 0))
             
-            # 过滤无效背景像素
-            valid = (L > 10) & (H > 10) & (L < 250) & (H < 250)
-            L = L[valid]
-            H = H[valid]
+            # 合并当前材质的数据以便统一采样
+            X_r_m = np.vstack(m_X_ratio)
+            X_p_m = np.vstack(m_X_poly)
+            y_m = np.concatenate(m_y)
+            step_m = np.concatenate(m_step)
             
-            # 随机采样，防止数据量过大内存不足
-            if len(L) > 50000:
-                indices = np.random.choice(len(L), 50000, replace=False)
-                L = L[indices]
-                H = H[indices]
+            # 材质内随机采样，防止数据量过大
+            if len(y_m) > 50000:
+                indices = np.random.choice(len(y_m), 50000, replace=False)
+                X_r_m, X_p_m, y_m, step_m = X_r_m[indices], X_p_m[indices], y_m[indices], step_m[indices]
                 
-            # 提取特征
-            ratio_feat = extract_feature_HL_ratio(L, H)
-            poly_feat = extract_feature_poly(L, H)
-            
-            X_ratio_list.append(ratio_feat)
-            X_poly_list.append(poly_feat)
-            
-            # 目标值 Z，因为包含多个厚度，但Z是常数，模型会自动解耦厚度
-            y_list.append(np.full(len(L), Z))
+            X_ratio_list.append(X_r_m)
+            X_poly_list.append(X_p_m)
+            y_list.append(y_m)
+            step_id_list.append(step_m)
         
         if not y_list:
             continue
@@ -93,6 +111,7 @@ for voltage in voltages:
         X_ratio = np.vstack(X_ratio_list)
         X_poly = np.vstack(X_poly_list)
         y = np.concatenate(y_list)
+        step_ids = np.concatenate(step_id_list)
         
         # 2. 模型训练
         # Model 1: 基于 H/L 比例的二次模型 + StandardScaler
@@ -108,54 +127,86 @@ for voltage in voltages:
         preds_poly = model_poly.predict(X_poly)
         
         # 提取并还原原始公式系数 (Unscaling)
-        # 只有还原到输入空间的公式才有物理意义
         scaler_r = model_ratio.named_steps['standardscaler']
         ridge_r = model_ratio.named_steps['ridge']
-        
         coef_orig = ridge_r.coef_ / scaler_r.scale_
         intercept_orig = ridge_r.intercept_ - np.sum(ridge_r.coef_ * scaler_r.mean_ / scaler_r.scale_)
-        
         formula_ratio = f"Z = {coef_orig[1]:.4f}*(H/L)^2 + {coef_orig[0]:.4f}*(H/L) + {intercept_orig:.4f}"
         
-        # 可视化结果 (精简为 1x3 布局)
-        fig, axes = plt.subplots(1, 3, figsize=(18, 5))
+        # 可视化结果 (4x3 布局)
+        fig, axes = plt.subplots(4, 3, figsize=(20, 20))
         material_colors = {29: 'red', 26: 'green', 13: 'blue'}
+        material_cmaps = {29: 'Reds', 26: 'Greens', 13: 'Blues'}
         import seaborn as sns
 
-        # Ax1: Model 1 散点图 (Z vs H/L Ratio)
+        # --- Row 0: Global Performance Overview ---
+        # Ax0,0: Model 1 Scatter
         for Z_val, name in zip([29, 26, 13], ['Cu', 'Fe', 'Al']):
             mask = (y == Z_val)
-            axes[0].scatter(X_ratio[mask, 0], preds_ratio[mask], color=material_colors[Z_val], alpha=0.1, s=1, label=f'{name} (True Z={Z_val})')
-            axes[0].axhline(Z_val, color=material_colors[Z_val], linestyle='--', alpha=0.5)
-        
-        axes[0].set_title(f"Model 1 Scatter\n{formula_ratio}")
-        axes[0].set_xlabel("H / L Ratio")
-        axes[0].set_ylabel("Predicted Z")
-        axes[0].legend()
-        
-        # Ax2: Model 1 分布图 (Z Distribution)
-        for Z_val, name in zip([29, 26, 13], ['Cu', 'Fe', 'Al']):
-            mask = (y == Z_val)
-            sns.kdeplot(preds_ratio[mask], ax=axes[1], label=f'{name} (True={Z_val})', fill=True, color=material_colors[Z_val])
-        axes[1].set_title(f"Model 1 Z Distribution")
-        axes[1].set_xlabel("Predicted Z")
-        axes[1].axvline(29, color='r', linestyle='--')
-        axes[1].axvline(26, color='g', linestyle='--')
-        axes[1].axvline(13, color='b', linestyle='--')
-        axes[1].legend()
+            axes[0, 0].scatter(X_ratio[mask, 0], preds_ratio[mask], color=material_colors[Z_val], alpha=0.1, s=1, label=f'{name} (True Z={Z_val})')
+            axes[0, 0].axhline(Z_val, color=material_colors[Z_val], linestyle='--', alpha=0.5)
+        axes[0, 0].set_title(f"M1 Global Scatter\n{formula_ratio}")
+        axes[0, 0].set_xlabel("H/L Ratio")
+        axes[0, 0].set_ylabel("Predicted Z")
+        axes[0, 0].legend(loc='upper right', fontsize='x-small')
 
-        # Ax3: Model 2 分布图 (Z Distribution)
+        # Ax0,1 & Ax0,2: Global KDE
         for Z_val, name in zip([29, 26, 13], ['Cu', 'Fe', 'Al']):
-            mask = (y == Z_val)
-            sns.kdeplot(preds_poly[mask], ax=axes[2], label=f'{name} (True={Z_val})', fill=True, color=material_colors[Z_val])
+            mask_m = (y == Z_val)
+            for ax_col, preds, title in zip([1, 2], [preds_ratio, preds_poly], ["M1 Global KDE", "M2 Global KDE"]):
+                sns.kdeplot(preds[mask_m], ax=axes[0, ax_col], label=f'{name} (Z={Z_val})', color=material_colors[Z_val], linewidth=1.5)
+                axes[0, ax_col].axvline(Z_val, color=material_colors[Z_val], linestyle=':', alpha=0.8)
+                axes[0, ax_col].set_title(title)
+                axes[0, ax_col].legend(loc='upper right', fontsize='x-small')
+
+        # --- Row 1 & 2: Material-Specific Thickness Breakdown (KDE Distribution) ---
+        for row_idx, preds, model_name in zip([1, 2], [preds_ratio, preds_poly], ["Model 1", "Model 2"]):
+            for col_idx, (Z_val, name) in enumerate(zip([13, 26, 29], ['Al', 'Fe', 'Cu'])):
+                ax = axes[row_idx, col_idx]
+                mask_m = (y == Z_val)
+                cmap_name = material_cmaps[Z_val]
+                sns.kdeplot(preds[mask_m], ax=ax, label='Total', color='black', alpha=0.3, linestyle='--', linewidth=1.2, zorder=10)
+                
+                cm = plt.get_cmap(cmap_name)
+                m_steps = np.unique(step_ids[mask_m])
+                max_step_idx = m_steps.max() if len(m_steps) > 0 else 1
+                for s_idx in m_steps:
+                    mask_s = mask_m & (step_ids == s_idx)
+                    if np.count_nonzero(mask_s) < 100: continue
+                    color_idx = 0.3 + 0.6 * (s_idx / max_step_idx)
+                    sns.kdeplot(preds[mask_s], ax=ax, label=f'Step {s_idx}', color=cm(color_idx), linewidth=1.0, alpha=0.7)
+                
+                ax.set_title(f"{model_name} - {name} Decay")
+                ax.axvline(Z_val, color=material_colors[Z_val], linestyle=':', alpha=0.8)
+                ax.legend(loc='upper right', fontsize='xx-small', ncol=2)
+
+        # --- Row 3: Systematic Bias Analysis (Mean Z vs Step Index) ---
+        for col_idx, (Z_val, name) in enumerate(zip([13, 26, 29], ['Al', 'Fe', 'Cu'])):
+            ax = axes[3, col_idx]
+            mask_m = (y == Z_val)
+            m_steps = np.unique(step_ids[mask_m])
             
-        axes[2].set_title(f"Model 2 (L, H Poly) Z Distribution\n2nd-order f(L, H)")
-        axes[2].set_xlabel("Predicted Z")
-        axes[2].axvline(29, color='r', linestyle='--')
-        axes[2].axvline(26, color='g', linestyle='--')
-        axes[2].axvline(13, color='b', linestyle='--')
-        axes[2].legend()
-        
+            plot_steps = []
+            means_m1 = []
+            means_m2 = []
+            for s_idx in m_steps:
+                mask_s = mask_m & (step_ids == s_idx)
+                if np.count_nonzero(mask_s) < 100: continue
+                plot_steps.append(s_idx)
+                means_m1.append(np.mean(preds_ratio[mask_s]))
+                means_m2.append(np.mean(preds_poly[mask_s]))
+            
+            ax.plot(plot_steps, means_m1, 'o-', color='tab:red', label='Model 1 Mean', linewidth=2)
+            ax.plot(plot_steps, means_m2, 's--', color='tab:blue', label='Model 2 Mean', linewidth=2)
+            ax.axhline(Z_val, color='black', linestyle=':', alpha=0.8, label=f'True Z={Z_val}')
+            
+            ax.set_title(f"{name} Mean Predicted Z vs Step")
+            ax.set_xlabel("Step Index (0=Thinnest)")
+            ax.set_ylabel("Mean Z")
+            ax.set_xticks(m_steps)
+            ax.grid(True, alpha=0.3)
+            ax.legend(loc='best', fontsize='x-small')
+
         plt.tight_layout()
         case_name = f"Al{al_steps}_CuFe{cufe_steps}"
         plt.savefig(f"{output_dir}/{voltage}_{case_name}_Z_decoupling.png")
@@ -163,11 +214,46 @@ for voltage in voltages:
         
         # 验证解耦程度
         print(f"Variance of Predicted Z ({case_name}):")
+        v_num = int(voltage.replace('kV', ''))
         for Z_val, name in zip([29, 26, 13], ['Cu', 'Fe', 'Al']):
             mask = (y == Z_val)
             std_r = np.std(preds_ratio[mask])
             std_p = np.std(preds_poly[mask])
             print(f"  {name}: M1 std={std_r:.3f}, M2 std={std_p:.3f}")
+            
+            # 记录数据用于汇总绘图
+            results_data.append({'Voltage': v_num, 'Scenario': case_name, 'Material': name, 'Model': 'Model 1', 'Std': std_r})
+            results_data.append({'Voltage': v_num, 'Scenario': case_name, 'Material': name, 'Model': 'Model 2', 'Std': std_p})
         print("\n")
+
+# --- 生成汇总对比图 ---
+if results_data:
+    import pandas as pd
+    df_acc = pd.DataFrame(results_data)
+    
+    plt.figure(figsize=(18, 6))
+    materials = ['Al', 'Fe', 'Cu']
+    for i, mat in enumerate(materials):
+        plt.subplot(1, 3, i+1)
+        sub_df = df_acc[df_acc['Material'] == mat]
+        
+        # 使用 seaborn 绘制折线图，区分模型和场景
+        sns.lineplot(data=sub_df, x='Voltage', y='Std', hue='Model', style='Scenario', 
+                     markers=True, markersize=8, linewidth=2, palette="Set1")
+        
+        plt.title(f"{mat} Decoupling Accuracy vs Voltage")
+        plt.xlabel("Voltage (kV)")
+        plt.ylabel("Prediction Std (Lower is Better)")
+        plt.xticks([140, 160, 180])
+        plt.grid(True, linestyle='--', alpha=0.6)
+        if i == 2: # 最后一个子图显示图例
+            plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left', fontsize='small')
+        else:
+            plt.legend().remove()
+
+    plt.tight_layout()
+    summary_path = f"{output_dir}/Z_accuracy_summary_comparison.png"
+    plt.savefig(summary_path)
+    print(f"Accuracy summary plot saved to: {summary_path}")
 
 print(f"Done. Please check the charts in {output_dir}")
