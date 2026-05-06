@@ -1,3 +1,21 @@
+## 2026-04-28
+- Created **`plot_row_mean.py`** to analyze and plot the mean pixel values of the first 10 rows across columns for the initially converted `.png` images.
+- Created **`read_raw.py`** to batch convert 16-bit `.raw` images (1024x1024) into `.png` format, saving them directly to a subfolder within the data directory.
+
+## 2026-04-22
+- Refined **`decouple_thickness.py`** 5x3 Visualization:
+    - Replaced Row 0 scatter/overlay plots with **Individual Global KDEs** for Model 1, 2, and 3. This provides a cleaner per-model overview of material separation performance.
+- Implemented **Model 3 (R-driven Analysis)**:
+    - Added feature extraction for $R = \ln(I_{0,L}/L + 5) / \ln(I_{0,H}/H + 20)$ based on `utils_II.compute_R`.
+    - Integrated Model 3 into the regression pipeline and accuracy tracking.
+- Expanded **`decouple_thickness.py`** Visualization to **5x3 Grid**:
+    - Added Model 3 Global Scatter and triple-model Global KDE comparison (Row 0).
+    - Added Model 3 Step Breakdown (Row 3).
+    - Enhanced Bias Analysis (Row 4) to overlay M1, M2, and M3 mean trends.
+- Added **Dynamic Output Directory** and **Parameter Logging**:
+    - `output_dir` now automatically creates a subfolder based on the date in `input_dir` (e.g., `.../z_decouple/20260331/`).
+    - Implemented `fitting_parameters.txt` to archive all model coefficients and intercepts for every voltage/scenario combination.
+
 ## 2026-04-17
 - **Optimization**: Optimized `extract_sample_values.py` for 0409 dataset. When filenames contain "270us", it now uses `roi_270` and performs a 1.5x vertical compression using `cv2.INTER_AREA` interpolation before subsequent processing.
 - **Improved**: Added `vscale` and `vscale_interp` parameters to `get_bricks` and `get_bricks_watershed` in `utils_II.py` to support flexible image scaling after ROI selection.
@@ -125,6 +143,17 @@
 - Enhanced `classify_contour` in `utils_II.py` with `Ellipse Fit` logic to robustly identify disks even when elongated.
 - Implemented automated detection of `step_sample` (bricks) by calculating pixel standard deviation (`std > 5.0`) for rectangular objects.
 - Updated `standard_sample_0402.py` to flow pixel data through the classifier.
+
+## 2026-04-21
+- Refined **`compare_tube.py`** with **Manual Index Pairing**:
+    - **Flexible Matching**: Updated `main()` to support separate index lists (e.g., `indices_125` vs `indices_270`), enabling precise pairing of corresponding ores even if their segmentation IDs differ.
+- **Improved Visualization**:
+    - **Per-Ore Histograms**: Implemented `plot_simple_hist_grid` to create individual comparative subplots for each matched ore pair, ensuring clear visibility of distribution changes across exposure times.
+
+- Added **Intensity Correlation Plot** to `compare_tube.py`:
+    - **XY Scatter Mode**: Supports comparing two groups of datasets by plotting one as X and another as Y (e.g., 125us vs 270us).
+    - **Automatic Formatting**: Includes an identity line (y=x) and point annotations to visualize intensity shifts and linearity across different exposure settings.
+- **Improved**: `main` now automatically collects common ore samples (Ore 0-3) to provide a statistically meaningful correlation view.
 
 ## 2026-04-11
 - Updated `standard_sample_0402.py` to automatically organize results into subfolders within `results/`, named after the input data directory (e.g., `results/20260402/`).

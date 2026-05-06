@@ -1,0 +1,134 @@
+Fitting Parameters Log for Dataset: 20260331
+============================================================
+
+=== Voltage: 140kV | Case: Al6_CuFe4 ===
+Model 1 (H/L) Formula: Z = -30.9165*(H/L)^2 + 113.2537*(H/L) + -74.6901
+Model 2 (Poly) Intercept: 30.0970
+  Coef L: -0.819745
+  Coef H: 0.308770
+  Coef L^2: 0.005707
+  Coef L H: -0.007975
+  Coef H^2: 0.005079
+Model 3 (R-value) Formula: Z = -213.7002*R^2 + 384.8284*R + -144.0723
+--------------------------------------------------
+
+=== Voltage: 140kV | Case: Al8_CuFe6 ===
+Model 1 (H/L) Formula: Z = -7.2208*(H/L)^2 + 37.6540*(H/L) + -16.3133
+Model 2 (Poly) Intercept: 29.6044
+  Coef L: -0.874583
+  Coef H: 0.333304
+  Coef L^2: 0.008157
+  Coef L H: -0.011475
+  Coef H^2: 0.006525
+Model 3 (R-value) Formula: Z = -164.8047*R^2 + 308.9725*R + -116.2701
+--------------------------------------------------
+
+=== Voltage: 140kV | Case: Al10_CuFe8 ===
+Model 1 (H/L) Formula: Z = 9.4238*(H/L)^2 + -15.4975*(H/L) + 24.4656
+Model 2 (Poly) Intercept: 29.3575
+  Coef L: -0.928307
+  Coef H: 0.351584
+  Coef L^2: 0.010379
+  Coef L H: -0.014594
+  Coef H^2: 0.007850
+Model 3 (R-value) Formula: Z = -139.0911*R^2 + 268.3868*R + -101.4398
+--------------------------------------------------
+
+=== Voltage: 140kV | Case: Al10_CuFe4 ===
+Model 1 (H/L) Formula: Z = -27.4338*(H/L)^2 + 104.3437*(H/L) + -70.0986
+Model 2 (Poly) Intercept: 30.2967
+  Coef L: -0.961693
+  Coef H: 0.351960
+  Coef L^2: 0.009477
+  Coef L H: -0.012773
+  Coef H^2: 0.007144
+Model 3 (R-value) Formula: Z = -125.0682*R^2 + 248.8109*R + -94.6617
+--------------------------------------------------
+
+=== Voltage: 160kV | Case: Al6_CuFe4 ===
+Model 1 (H/L) Formula: Z = -30.2299*(H/L)^2 + 111.2591*(H/L) + -73.4458
+Model 2 (Poly) Intercept: 30.8350
+  Coef L: -0.758379
+  Coef H: 0.241462
+  Coef L^2: 0.004901
+  Coef L H: -0.007086
+  Coef H^2: 0.004968
+Model 3 (R-value) Formula: Z = -242.6983*R^2 + 428.0128*R + -159.3655
+--------------------------------------------------
+
+=== Voltage: 160kV | Case: Al8_CuFe6 ===
+Model 1 (H/L) Formula: Z = -22.7363*(H/L)^2 + 87.7453*(H/L) + -55.6087
+Model 2 (Poly) Intercept: 30.0539
+  Coef L: -0.809124
+  Coef H: 0.271694
+  Coef L^2: 0.007205
+  Coef L H: -0.010377
+  Coef H^2: 0.006272
+Model 3 (R-value) Formula: Z = -166.4312*R^2 + 310.4580*R + -116.0060
+--------------------------------------------------
+
+=== Voltage: 160kV | Case: Al10_CuFe8 ===
+Model 1 (H/L) Formula: Z = -1.8490*(H/L)^2 + 19.5591*(H/L) + -1.9407
+Model 2 (Poly) Intercept: 29.7128
+  Coef L: -0.865826
+  Coef H: 0.297546
+  Coef L^2: 0.009096
+  Coef L H: -0.012922
+  Coef H^2: 0.007302
+Model 3 (R-value) Formula: Z = -139.9650*R^2 + 268.9052*R + -100.8765
+--------------------------------------------------
+
+=== Voltage: 160kV | Case: Al10_CuFe4 ===
+Model 1 (H/L) Formula: Z = -27.0761*(H/L)^2 + 103.3110*(H/L) + -69.5259
+Model 2 (Poly) Intercept: 30.6887
+  Coef L: -0.922323
+  Coef H: 0.317083
+  Coef L^2: 0.008228
+  Coef L H: -0.010909
+  Coef H^2: 0.006406
+Model 3 (R-value) Formula: Z = -142.3847*R^2 + 276.6448*R + -105.0062
+--------------------------------------------------
+
+=== Voltage: 180kV | Case: Al6_CuFe4 ===
+Model 1 (H/L) Formula: Z = -33.5518*(H/L)^2 + 119.0581*(H/L) + -76.8496
+Model 2 (Poly) Intercept: 30.8358
+  Coef L: -0.797085
+  Coef H: 0.282901
+  Coef L^2: 0.003504
+  Coef L H: -0.004349
+  Coef H^2: 0.003712
+Model 3 (R-value) Formula: Z = -274.9756*R^2 + 475.1641*R + -175.9053
+--------------------------------------------------
+
+=== Voltage: 180kV | Case: Al8_CuFe6 ===
+Model 1 (H/L) Formula: Z = -34.3311*(H/L)^2 + 121.3637*(H/L) + -78.6380
+Model 2 (Poly) Intercept: 30.0655
+  Coef L: -0.843206
+  Coef H: 0.312651
+  Coef L^2: 0.005380
+  Coef L H: -0.007044
+  Coef H^2: 0.004786
+Model 3 (R-value) Formula: Z = -187.6113*R^2 + 342.2702*R + -127.3223
+--------------------------------------------------
+
+=== Voltage: 180kV | Case: Al10_CuFe8 ===
+Model 1 (H/L) Formula: Z = -22.7437*(H/L)^2 + 85.1361*(H/L) + -51.0623
+Model 2 (Poly) Intercept: 29.7635
+  Coef L: -0.895366
+  Coef H: 0.335319
+  Coef L^2: 0.007327
+  Coef L H: -0.009765
+  Coef H^2: 0.005911
+Model 3 (R-value) Formula: Z = -146.3737*R^2 + 277.9288*R + -103.5999
+--------------------------------------------------
+
+=== Voltage: 180kV | Case: Al10_CuFe4 ===
+Model 1 (H/L) Formula: Z = -29.1892*(H/L)^2 + 107.9756*(H/L) + -70.9551
+Model 2 (Poly) Intercept: 30.3041
+  Coef L: -0.973575
+  Coef H: 0.385746
+  Coef L^2: 0.006349
+  Coef L H: -0.007303
+  Coef H^2: 0.004635
+Model 3 (R-value) Formula: Z = -152.9980*R^2 + 293.5866*R + -111.1242
+--------------------------------------------------

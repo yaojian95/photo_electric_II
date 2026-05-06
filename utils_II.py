@@ -218,7 +218,7 @@ def check_step_gradient(straightened_image, threshold=10.0):
     
     return is_step, top_mean, mid_mean, bot_mean
 
-def classify_contour(cnt, box_image_low=None, pixels_low=None):
+def classify_contour(cnt, ellipse_limit = 0.92, box_image_low=None, pixels_low=None):
     """
     Classifies the contour into ['block', 'step_sample', 'disk', 'ore'].
     Returns: (label, meta)
@@ -248,14 +248,14 @@ def classify_contour(cnt, box_image_low=None, pixels_low=None):
         "top_m": 0, "mid_m": 0, "bot_m": 0
     }
 
-    if circularity > 0.82 or ellipse_ratio > 0.92:
+    if circularity > 0.82 or ellipse_ratio > ellipse_limit:
         label = 'disk'
         # DISK REFINEMENT: Calculate stats on 2/3 core
         if box_image_low is not None:
             core_pixels, center, core_radius = get_disk_core_info(box_image_low, cnt)
             meta["refined_pixels_low"] = core_pixels
             meta["disk_core"] = (center, core_radius)
-    elif rectangularity > 0.75:
+    elif rectangularity > 0.8:
         label = 'block'
         if box_image_low is not None:
             means, s_boxes = get_10_step_means(box_image_low)

@@ -13,7 +13,8 @@ densities = {
 
 # 阶梯厚度 t (mm) -> 转换为 cm 以后计算单位为 cm^2/g
 thickness_cu_fe_mm = np.arange(2, 22, 2)
-thickness_al_mm = np.arange(22, 42, 2) # 10 steps: 22, 24, ..., 40
+# thickness_al_mm = np.arange(22, 42, 2) # 10 steps: 22, 24, ..., 40
+thickness_al_mm = np.arange(12, 32, 2) # 10 steps: 22, 24, ..., 40
 
 # 入射强度 I0 (空气基准)
 I0_low = 204.0
@@ -68,8 +69,8 @@ for v_idx, voltage in enumerate(voltages):
         plot_x = res['t_mm']
         display_label = f"{mat_name}"
         if 'Al' in mat_name: 
-            plot_x = plot_x - 20
-            display_label += " (t-20mm)"
+            plot_x = plot_x - 10
+            display_label += " (t-10mm)"
             
         line, = ax.plot(plot_x, res['mu_low'], 'o-', label=f"{display_label} Low")
         ax.plot(plot_x, res['mu_high'], 's--', color=line.get_color(), label=f"{display_label} High")
@@ -90,13 +91,13 @@ for mat_name, col_idx in mat_to_col.items():
         res = all_results[voltage][mat_name]
         
         plot_x = res['t_mm']
-        if 'Al' in mat_name: plot_x = plot_x - 20
+        if 'Al' in mat_name: plot_x = plot_x - 10
             
         line, = ax.plot(plot_x, res['mu_low'], 'o-', label=f"{voltage} Low")
         ax.plot(plot_x, res['mu_high'], 's--', color=line.get_color(), label=f"{voltage} High")
         
     sub_title = f"Comparison by Material: {mat_name}"
-    if 'Al' in mat_name: sub_title += " (X-axis offset -20mm)"
+    if 'Al' in mat_name: sub_title += " (X-axis offset -10mm)"
     ax.set_title(sub_title)
     ax.set_xlabel("Thickness (mm)")
     ax.set_ylabel(r"$\mu_m$ ($cm^2/g$)")
@@ -105,7 +106,7 @@ for mat_name, col_idx in mat_to_col.items():
 
 plt.suptitle(r"Mass Attenuation Coefficient $\mu_m$ Comprehensive Analysis,  $\mu_m = \frac{\ln(I_0/I)}{\rho \cdot t}$", fontsize=16)
 plt.tight_layout(rect=[0, 0.03, 1, 0.95])
-plt.savefig(f"{output_dir}/mu_m_analysis.png")
+plt.savefig(f"{output_dir}/mu_m_analysis_new.png")
 plt.show()
 
-print(f"Analysis complete. Plot saved to {output_dir}/mu_m_analysis.png")
+# print(f"Analysis complete. Plot saved to {output_dir}/mu_m_analysis.png")

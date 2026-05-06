@@ -15,13 +15,13 @@ from utils_II import get_bricks, get_bricks_watershed, classify_contour, save_co
 
 def main():
     # data_dir = r'E:\multi_source_info\data_dir\20260402'
-    # data_dir = r'E:\multi_source_info\data_dir\20260331'
+    data_dir = r'E:\multi_source_info\data_dir\20260331'
     # data_dir = r'E:\multi_source_info\data_dir\20260407_Sample_test'
-    # roi = [0, 1200, 200, 1336]; th_val = 190; fy = 0.9909
-    data_dir = r'E:\multi_source_info\data_dir\20260409_TYM-data\TYM_test'
+    roi = [0, 1200, 200, 1336]; th_val = 190; fy = 0.9909 #fy单独控制高能图像的校准比例
+    # data_dir = r'E:\multi_source_info\data_dir\20260409_TYM-data\TYM_test'
     # data_dir = r'E:\multi_source_info\data_dir\20260409_TYM-data\TYM_converted_results'
-    roi_125 = [960, 1900, 0, -1]; th_val_125 = 160; fy = 1 #fy单独控制高能图像的校准比例
-    roi_270 = [687, 3000, 0, -1]; th_val_270 = 151; fy = 1
+    roi_125 = [960, 1900, 0, -1]; th_val_125 = 160; 
+    roi_270 = [610, 3000, 0, -1]; th_val_270 = 151; 
 
     # Path-specific threshold method: Use BINARY_INV for 0409 TYM-data, otherwise BINARY
     th_type = cv2.THRESH_BINARY_INV if "0409" in data_dir else cv2.THRESH_BINARY
@@ -47,19 +47,26 @@ def main():
 
     for filename in tif_files:
             # DYNAMIC PARAMETERS: Handle specific 0409 270us compression
-            roi = roi_125
-            th_val = th_val_125
+            
+            # 默认值
             vscale = 1.0
             vinterp = cv2.INTER_LINEAR
-            
-            if "0409" in data_dir and "270us" in filename.lower():
-                roi = roi_270
-                vscale = 1.0 / 2.7
-                vinterp = cv2.INTER_AREA
-                th_val = th_val_270
-            elif "0409" in data_dir:
-                roi = roi_125 # Default for other 0409 data
-                th_val = th_val_125
+            ellipse_limit = 0.98
+            if "0409" in data_dir:
+                fy = 1
+
+                if "270us" in filename.lower():
+                    roi = roi_270
+                    vscale = 1/1.5
+                    vinterp = cv2.INTER_AREA
+                    th_val = th_val_270
+                elif "125us" in filename.lower():
+                    roi = roi_125
+                    th_val = th_val_125
+            else:
+                # 20260331 等其他数据集走默认参数
+                roi = roi  # 使用 main() 开头定义的 roi
+                th_val = th_val
 
             image_path = os.path.join(data_dir, filename)
             
@@ -93,7 +100,7 @@ def main():
 
                     # Use STRAIGHTENED image to classify
                     cur_pixels_low = pixels[i][0]
-                    label, meta = classify_contour(cnt, box_image_low=warped_low, pixels_low=cur_pixels_low)
+                    label, meta = classify_contour(cnt, ellipse_limit = ellipse_limit, box_image_low=warped_low, pixels_low=cur_pixels_low)
                     
                     # REFINEMENT: Handle Disk Core Sampling and Step Sampling
                     save_pixels_low = meta["refined_pixels_low"]

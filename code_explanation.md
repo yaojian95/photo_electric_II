@@ -45,16 +45,20 @@ This workspace focus on validating XRT image quality and extracting standard sam
 - **Workflow**:
     1. Loads step-sample data from `results/20260331/pixel_values/` for Cu, Fe, and Al.
     2. Assigns target atomic numbers: Cu=29, Fe=26, Al=13.
-    3. Iteratively fits Ridge regression models for three thickness scenarios (Al 6/8/10 steps) to evaluate how step inclusion impacts thickness decoupling consistency.
-    4. Plots results in a **4x3 grid**:
-        - **Row 0**: Global performance overview.
+    3. Iteratively fits Ridge regression models for three thickness scenarios (Al 6/8/10 steps) to evaluate how step inclusion- `results/thickness_decoupling/z_decouple/[DATE]/`: Contains output charts and parameter logs for a specific dataset.
+- `results/thickness_decoupling/z_decouple/[DATE]/fitting_parameters.txt`: Centralized log of all regression coefficients.
+ in a **5x3 grid**:
+        - **Row 0**: Global overview showing separate KDE plots for Model 1, 2, and 3.
         - **Row 1**: Model 1 distribution breakdown per material.
         - **Row 2**: Model 2 distribution breakdown per material.
-        - **Row 3**: Systematic bias analysis (Mean Predicted Z vs Step Index).
+        - **Row 3**: Model 3 distribution breakdown per material.
+        - **Row 4**: Systematic bias analysis (Mean Predicted Z vs Step Index) comparing all three models.
     5. **Step-Wise Visualization**: KDE plots include granular distributions per thickness level.
-    6. **Mean Bias Analysis**: Row 3 subplots visualize the drift in mean prediction across physical thickness steps, identifying systematic inaccuracies in each model.
-    7. **Baseline Reference**: Dashed black lines (distributions) and dotted lines (means) provide ground truth context.
-    8. **Accuracy Summary**: Generates `Z_accuracy_summary_comparison.png` at the end to show global stability trends.
+    6. **Mean Bias Analysis**: Row 4 subplots visualize the drift in mean prediction across physical thickness steps for M1, M2, and M3.
+    7. **Model 3 Physics**: Uses the $R$-value formula $R = \ln(I_{0,L}/L + 5) / \ln(I_{0,H}/H + 20)$ for robust feature extraction.
+    8. **Accuracy Summary**: Generates `Z_accuracy_summary_comparison.png` comparing precision (std) of all three models.
+    9. **Parameter Logging**: Automatically archives all fitted coefficients and intercepts to `fitting_parameters.txt` in the timestamped output directory.
+    10. **Data Traceability**: `output_dir` is now dynamically synchronized with the `input_dir` date string to prevent results from being overwritten when testing different datasets.
     8. **Optimization**: Incorporates `StandardScaler` with unscaling logic for physically accurate formula display.
 
 ### `calculate_mu_m.py`
@@ -67,16 +71,40 @@ This workspace focus on validating XRT image quality and extracting standard sam
 
 
 ### `fit_hl_curve.py`
-- **Purpose**: Explorer script that performs a 2x3 comprehensive grid analysis for each voltage level.
+- **Purpose**: Modular analysis pipeline that performs a 2x3 grid evaluation for both stepped samples and graded disks.
+- **Output Structure**:
+    - `results/thickness_decoupling/h-l-fit/steps/`: Contains Cu, Fe, and Al step-sample analysis.
+    - `results/thickness_decoupling/h-l-fit/disks/`: Contains analysis for graded disks (IDs 9-17).
 - **Workflow**:
-    1. **Row 1 (Raw Intensity)**: Fits $H = f(L)$ and plots $t$ vs $L$, $t$ vs $H$ with **standard deviation error bars** to visualize sensor noise.
-    2. **Row 2 (Log Energy)**: Fits $\ln(I_0/H) = f(\ln(I_0/L))$ and plots $t$ vs $\ln(I_0/L)$, $t$ vs $\ln(I_0/H)$ to visualize attenuation.
-    3. **Adaptive Linearity Analysis**: Implements an iterative algorithm to find the maximum thickness range that maintains a high-quality linear fit ($R^2 > 0.99$).
-    4. **Range Annotation**: Identified that Cu/Fe typically stop being linear around 8-12mm, while Al remains linear across the full 40mm range.
-    5. Handles $I_0 = 204.0$ and applies a display offset for Al samples.
+    1. **Iterative Loading**: Dynamically loads data from single files (steps) or multiple files (disks).
+    2. **Group-Specific Calibration**: Applies different axis limits for step samples (low gray value, high attenuation) and disk samples (high gray value, low attenuation) to ensure visibility.
+    3. **Total Visualization**: Disables subsampling to plot every valid pixel in H-L space.
+    4. **Grid Metrics**: Computes means, standard deviations, log-attenuation, and adaptive linear ranges.
 
+### `read_raw.py`
+- **Purpose**: Batch convert 16-bit `.raw` XRT images into `.png` format.
+- **Workflow**:
+    1. Traverses the specified source directory for `.raw` files.
+    2. Reads 1024x1024 raw pixel data as `uint16`.
+    3. Reshapes to 2D array and saves as `.png` using `cv2.imencode` to support Unicode file paths.
+- **Functions**:
+    - `convert_raw_to_png(src_dir, dst_dir, width, height)`: Reads 16-bit RAW images from the source directory, converts them to PNG, and saves them in the destination directory.
+        - 参数 `src_dir`: 包含 .raw 文件的源目录 (str)。
+        - 参数 `dst_dir`: 保存转换后 .png 文件的目标目录 (str)。
+        - 参数 `width`: 图像预期宽度 (int，默认为1024)。
+        - 参数 `height`: 图像预期高度 (int，默认为1024)。
 
-
+### `plot_row_mean.py`
+- **Purpose**: Analyze and visualize the column-wise mean of specific row segments (e.g., first 10 rows) for the converted PNG images.
+- **Workflow**:
+    1. Loads the first converted PNG image from the specified directory.
+    2. Extracts the first 10 rows of the image.
+    3. Calculates the mean pixel intensity across these rows for each column.
+    4. Generates and saves a curve plot of the result.
+- **Functions**:
+    - `plot_first_10_rows_mean(img_dir, save_path)`: Reads the first PNG image, calculates the mean of its first 10 rows along the columns, and plots the result.
+        - 参数 `img_dir`: 包含待分析PNG图像的目录 (str)。
+        - 参数 `save_path`: 图像输出的完整路径 (str, 默认为None, 默认保存在 `img_dir` 内)。
 
 
 
