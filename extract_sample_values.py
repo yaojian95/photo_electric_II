@@ -15,9 +15,18 @@ from utils_II import get_bricks, get_bricks_watershed, classify_contour, save_co
 
 def main():
     # data_dir = r'E:\multi_source_info\data_dir\20260402'
-    data_dir = r'E:\multi_source_info\data_dir\20260331'
+    # data_dir = r'E:\multi_source_info\data_dir\20260331'
     # data_dir = r'E:\multi_source_info\data_dir\20260407_Sample_test'
     roi = [0, 1200, 200, 1336]; th_val = 190; fy = 0.9909 #fy单独控制高能图像的校准比例
+    align_direct = 'y'
+    # Set to a specific string (e.g., 'ore', 'disk', 'block', 'step_sample') to force all contours 
+    # to be classified as that type. Set to None for automatic classification based on geometry.
+    # all_type = None 
+    reverse_sort = False
+
+    data_dir = r'E:\multi_source_info\data_dir\20260325_yinshan'; roi = [0, 1625, 200, 1336]
+    all_type = 'ore'; th_val = 140; fy = 0.9909; align_direct = 'x'; reverse_sort = True
+
     # data_dir = r'E:\multi_source_info\data_dir\20260409_TYM-data\TYM_test'
     # data_dir = r'E:\multi_source_info\data_dir\20260409_TYM-data\TYM_converted_results'
     roi_125 = [960, 1900, 0, -1]; th_val_125 = 160; 
@@ -31,7 +40,7 @@ def main():
     # Extract folder name from data_dir to create a subfolder in results
     folder_name = os.path.basename(data_dir.rstrip('\\'))
     output_dir = os.path.join('results', folder_name)
-    
+    print(output_dir)
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
 
@@ -79,9 +88,11 @@ def main():
                                                                                                              th_val = th_val, 
                                                                                                              th_type = th_type, 
                                                                                                              fx=1.0, fy=fy, 
-                                                                                                             sort_direction='y',
+                                                                                                             sort_direction=align_direct,
+                                                                                                             max_colwidth= 35,
                                                                                                              vscale=vscale,
-                                                                                                             vscale_interp=vinterp)
+                                                                                                             vscale_interp=vinterp,
+                                                                                                             reverse_sort=reverse_sort)
                 base_name = os.path.splitext(filename)[0]
                 
                 # Save Standard contoured image
@@ -96,11 +107,26 @@ def main():
                     # Warp the object for precise analysis using ALIGNED ROI images
                     warped_low, M_inv = warp_straighten(low_roi, cnt)
                     warped_high, _ = warp_straighten(high_roi, cnt)
-                    warped_bundle = [warped_low, warped_high, None]
+                    
+                    # Create a mask to filter out background pixels when saving high_low_images
+                    mask = np.zeros(low_roi.shape[:2], dtype=np.uint8)
+                    cv2.drawContours(mask, [cnt], -1, 255, -1)
+                    warped_mask, _ = warp_straighten(mask, cnt)
+                    
+                    bg_val_low = 65535 if warped_low.dtype == np.uint16 else 255
+                    bg_val_high = 65535 if warped_high.dtype == np.uint16 else 255
+                    
+                    warped_low_save = warped_low.copy()
+                    warped_low_save[warped_mask < 128] = bg_val_low
+                    
+                    warped_high_save = warped_high.copy()
+                    warped_high_save[warped_mask < 128] = bg_val_high
+
+                    warped_bundle = [warped_low_save, warped_high_save, None]
 
                     # Use STRAIGHTENED image to classify
                     cur_pixels_low = pixels[i][0]
-                    label, meta = classify_contour(cnt, ellipse_limit = ellipse_limit, box_image_low=warped_low, pixels_low=cur_pixels_low)
+                    label, meta = classify_contour(cnt, ellipse_limit = ellipse_limit, box_image_low=warped_low, pixels_low=cur_pixels_low, all_type=all_type)
                     
                     # REFINEMENT: Handle Disk Core Sampling and Step Sampling
                     save_pixels_low = meta["refined_pixels_low"]
@@ -133,6 +159,11 @@ def main():
                         m_final = float(np.mean(save_pixels_low)) if save_pixels_low.size > 0 else 0
                         s_final = float(np.std(save_pixels_low)) if save_pixels_low.size > 0 else 0
                     
+                    # Visual Feedback: Draw the bounding rectangle (minAreaRect) used for warping
+                    rect = cv2.minAreaRect(cnt)
+                    box = cv2.boxPoints(rect)
+                    cv2.polylines(contoured, [np.int32(box)], True, (255, 0, 255), 1)
+
                     # Visual Feedback: Annotate stats and classification label
                     M = cv2.moments(cnt)
                     if M["m00"] != 0:

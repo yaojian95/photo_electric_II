@@ -4,24 +4,14 @@ import matplotlib.pyplot as plt
 import os
 import json
 import re
-from utils_II import calculate_effective_z
+import glob
 
-materials = {0: 'Cu_step', 1: 'Fe_step', 2: 'Al_step_block'}
-voltages = ['140kV', '160kV', '180kV']
-
-output_dir = 'results/thickness_decoupling'
-os.makedirs(output_dir, exist_ok=True)
-
-def perform_comprehensive_analysis(voltage, samples_dict, output_subdir, title_prefix, x_label, x_coords_dict, limits=None, color_by_step=False, plot_mode='all'):
+def perform_comprehensive_analysis(voltage, samples_dict, output_subdir, title_prefix, x_label, x_coords_dict, limits=None, color_by_step=False, plot_mode='all', I0=204.0):
     """
     通用 2x3 综合分析绘图函数
-    limits: { 'raw_x': (min, max), 'raw_y': (min, max), 'log_x': (min, max), 'log_y': (min, max) }
-    color_by_step (bool): 是否按照步进/圆盘的索引使用不同的颜色绘制散点图。
-    plot_mode (str): 'all' 为绘制所有像素点, 'means' 为仅绘制均值及误差棒。
     """
     os.makedirs(output_subdir, exist_ok=True)
     fig, axes = plt.subplots(2, 3, figsize=(18, 12))
-    I0 = 204.0
 
     # 1. 计算自适应坐标限制 (扫描所有数据)
     all_L_pts, all_H_pts = [], []
@@ -34,18 +24,18 @@ def perform_comprehensive_analysis(voltage, samples_dict, output_subdir, title_p
         all_x_vals.append(cur_x)
         
         for l, h in zip(L_list, H_list):
-            valid = (l > 1) & (h > 1) & (l < 255) & (h < 255)
+            valid = (l >= 0) & (h >= 0) & (l < 255) & (h < 255)
             if np.any(valid):
                 lv, hv = l[valid].astype(np.float32), h[valid].astype(np.float32)
                 if plot_mode == 'means':
                     # 只采集各样本的均值点，以便坐标轴紧凑
                     m_l, m_h = np.mean(lv), np.mean(hv)
                     all_L_pts.append(m_l); all_H_pts.append(m_h)
-                    all_log_L_pts.append(np.log(I0 / m_l)); all_log_H_pts.append(np.log(I0 / m_h))
+                    all_log_L_pts.append(np.log(I0 / max(m_l, 1e-6))); all_log_H_pts.append(np.log(I0 / max(m_h, 1e-6)))
                 else:
                     # 采集所有像素
                     all_L_pts.append(lv); all_H_pts.append(hv)
-                    all_log_L_pts.append(np.log(I0 / lv)); all_log_H_pts.append(np.log(I0 / hv))
+                    all_log_L_pts.append(np.log(I0 / np.maximum(lv, 1e-6))); all_log_H_pts.append(np.log(I0 / np.maximum(hv, 1e-6)))
 
     if not all_L_pts: 
         plt.close()
@@ -89,7 +79,7 @@ def perform_comprehensive_analysis(voltage, samples_dict, output_subdir, title_p
             ss_tot = np.sum((cur_y - np.mean(cur_y))**2)
             cur_r2 = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0
             if n > 3 and (cur_r2 < 0.98 or cur_r2 < prev_r2 - 0.015):
-                print(f"  [Linear Range Alert] {label} stopped at n={n-1} ({prev_r2:.4f} -> {cur_r2:.4f})")
+                # print(f"  [Linear Range Alert] {label} stopped at n={n-1} ({prev_r2:.4f} -> {cur_r2:.4f})")
                 break
             best_n, prev_r2 = n, cur_r2
         return best_n
@@ -101,7 +91,7 @@ def perform_comprehensive_analysis(voltage, samples_dict, output_subdir, title_p
         step_H_means = []
         step_H_stds = []
         for l, h in zip(L_list, H_list):
-            v_idx = (l > 1) & (h > 1) & (l < 255) & (h < 255)
+            v_idx = (l >= 0) & (h >= 0) & (l < 255) & (h < 255)
             if np.any(v_idx):
                 lv, hv = l[v_idx], h[v_idx]
                 step_L_means.append(np.mean(lv)); step_L_stds.append(np.std(lv))
@@ -113,10 +103,21 @@ def perform_comprehensive_analysis(voltage, samples_dict, output_subdir, title_p
         step_L_means, step_L_stds = np.array(step_L_means), np.array(step_L_stds)
         step_H_means, step_H_stds = np.array(step_H_means), np.array(step_H_stds)
 
-        L_all = np.concatenate(L_list).astype(np.float32)
-        H_all = np.concatenate(H_list).astype(np.float32)
-        valid = (L_all > 1) & (H_all > 1) & (L_all < 255) & (H_all < 255)
-        L_v, H_v = L_all[valid], H_all[valid]
+        # 扁平化数据进行散点图绘制
+        valid_flat = []
+        L_flat_valid = []
+        H_flat_valid = []
+        for l, h in zip(L_list, H_list):
+            v = (l >= 0) & (h >= 0) & (l < 255) & (h < 255)
+            if np.any(v):
+                L_flat_valid.append(l[v])
+                H_flat_valid.append(h[v])
+                
+        if L_flat_valid:
+            L_v = np.concatenate(L_flat_valid).astype(np.float32)
+            H_v = np.concatenate(H_flat_valid).astype(np.float32)
+        else:
+            L_v, H_v = np.array([]), np.array([])
         
         cur_x_vals = x_coords_dict[mat_name][:len(L_list)]
         plot_x = cur_x_vals - 10 if 'Al' in mat_name and 'step' in title_prefix.lower() else cur_x_vals
@@ -124,10 +125,8 @@ def perform_comprehensive_analysis(voltage, samples_dict, output_subdir, title_p
 
         # 先绘制 axes[0, 1] 以获取该 material 的 base_color
         eb_alpha = 0.3 if plot_mode == 'means' else 0.6
-        # 绘制带实心的折线和点 (不透明)
         line, = axes[0, 1].plot(plot_x, step_L_means, 'o-', markersize=5, label=display_label, linewidth=1.5)
         base_color = line.get_color()
-        # 绘制淡色的误差棒
         axes[0, 1].errorbar(plot_x, step_L_means, yerr=step_L_stds, fmt='none', capsize=3, alpha=eb_alpha, color=base_color)
         
         axes[0, 2].plot(plot_x, step_H_means, 'o-', markersize=5, label=display_label, linewidth=1.5, color=base_color)
@@ -138,15 +137,15 @@ def perform_comprehensive_analysis(voltage, samples_dict, output_subdir, title_p
             if color_by_step:
                 cmap = plt.get_cmap('tab10' if len(L_list) <= 10 else 'tab20')
                 for i, (l, h) in enumerate(zip(L_list, H_list)):
-                    valid_i = (l > 1) & (h > 1) & (l < 255) & (h < 255)
+                    valid_i = (l >= 0) & (h >= 0) & (l < 255) & (h < 255)
                     if np.any(valid_i):
                         if plot_mode == 'all':
-                            axes[0, 0].scatter(l[valid_i], h[valid_i], color=cmap(i), alpha=0.05, s=0.5, label=f"ID:{cur_x_vals[i]:.1f}")
+                            axes[0, 0].scatter(l[valid_i], h[valid_i], color=cmap(i), alpha=0.05, s=0.5, label=f"ID:{cur_x_vals[i]:.1f}" if i < len(cur_x_vals) else None)
                         else: # 'means'
                             m_l, m_h = np.mean(l[valid_i]), np.mean(h[valid_i])
                             s_l, s_h = np.std(l[valid_i]), np.std(h[valid_i])
                             axes[0, 0].errorbar(m_l, m_h, xerr=s_l, yerr=s_h, fmt='none', color=cmap(i), capsize=2, alpha=0.3)
-                            axes[0, 0].scatter(m_l, m_h, color=cmap(i), s=40, label=f"ID:{cur_x_vals[i]:.1f}", edgecolors='none')
+                            axes[0, 0].scatter(m_l, m_h, color=cmap(i), s=40, label=f"ID:{cur_x_vals[i]:.1f}" if i < len(cur_x_vals) else None, edgecolors='none')
                 fit_color = 'black'
             else:
                 if plot_mode == 'all':
@@ -160,21 +159,21 @@ def perform_comprehensive_analysis(voltage, samples_dict, output_subdir, title_p
             
             # 使用均值进行多项式拟合
             valid_m = ~np.isnan(step_L_means) & ~np.isnan(step_H_means)
-            if np.any(valid_m):
+            if np.sum(valid_m) > 2:
                 coeffs = np.polyfit(step_L_means[valid_m], step_H_means[valid_m], 2)
                 x_fit = np.linspace(raw_lims[0], raw_lims[1], 100)
                 axes[0, 0].plot(x_fit, np.poly1d(coeffs)(x_fit), color=fit_color, label=f"{display_label} Fit")
 
         # Row 2: Log Transform
         log_L_v, log_H_v = np.log(I0 / np.maximum(L_v, 1e-6)), np.log(I0 / np.maximum(H_v, 1e-6))
-        log_L_means = np.log(I0 / np.array(step_L_means))
-        log_H_means = np.log(I0 / np.array(step_H_means))
+        log_L_means = np.log(I0 / np.maximum(np.array(step_L_means), 1e-6))
+        log_H_means = np.log(I0 / np.maximum(np.array(step_H_means), 1e-6))
 
         if len(log_L_v) > 0:
             if color_by_step:
                 cmap = plt.get_cmap('tab10' if len(L_list) <= 10 else 'tab20')
                 for i, (l, h) in enumerate(zip(L_list, H_list)):
-                    valid_i = (l > 1) & (h > 1) & (l < 255) & (h < 255)
+                    valid_i = (l >= 0) & (h >= 0) & (l < 255) & (h < 255)
                     if np.any(valid_i):
                         ll = np.log(I0 / np.maximum(l[valid_i], 1e-6))
                         hh = np.log(I0 / np.maximum(h[valid_i], 1e-6))
@@ -197,30 +196,37 @@ def perform_comprehensive_analysis(voltage, samples_dict, output_subdir, title_p
                 fit_color = base_color
                 
             # 使用均值进行多项式拟合
-            valid_m = ~np.isnan(log_L_means) & ~np.isnan(log_H_means)
-            if np.any(valid_m):
+            valid_m = ~np.isnan(log_L_means) & ~np.isnan(log_H_means) & np.isfinite(log_L_means) & np.isfinite(log_H_means)
+            if np.sum(valid_m) > 2:
                 l_coeffs = np.polyfit(log_L_means[valid_m], log_H_means[valid_m], 2)
                 x_fit_log = np.linspace(log_lims[0], log_lims[1], 100)
                 axes[1, 0].plot(x_fit_log, np.poly1d(l_coeffs)(x_fit_log), color=fit_color, label=f"{display_label} Fit")
 
         line_color = base_color
-        n_l = find_linear_pts(cur_x_vals, log_L_means, f"{mat_name} Low-E")
-        l_fit = np.poly1d(np.polyfit(cur_x_vals[:n_l], log_L_means[:n_l], 1))
-        axes[1, 1].plot(plot_x[:n_l], l_fit(cur_x_vals[:n_l]), '--', color=line_color, label=f"{display_label} (n={n_l})")
-        axes[1, 1].plot(plot_x, log_L_means, 'o', color=line_color, alpha=0.3)
+        
+        # 防止拟合时出现 nan 或无穷大
+        valid_l_idx = np.isfinite(log_L_means) & ~np.isnan(log_L_means)
+        valid_h_idx = np.isfinite(log_H_means) & ~np.isnan(log_H_means)
+        
+        if np.any(valid_l_idx):
+            n_l = find_linear_pts(cur_x_vals[valid_l_idx], log_L_means[valid_l_idx], f"{mat_name} Low-E")
+            if n_l > 1:
+                l_fit = np.poly1d(np.polyfit(cur_x_vals[valid_l_idx][:n_l], log_L_means[valid_l_idx][:n_l], 1))
+                axes[1, 1].plot(plot_x[valid_l_idx][:n_l], l_fit(cur_x_vals[valid_l_idx][:n_l]), '--', color=line_color, label=f"{display_label} (n={n_l})")
+            axes[1, 1].plot(plot_x[valid_l_idx], log_L_means[valid_l_idx], 'o', color=line_color, alpha=0.3)
 
-        n_h = find_linear_pts(cur_x_vals, log_H_means, f"{mat_name} High-E")
-        h_fit = np.poly1d(np.polyfit(cur_x_vals[:n_h], log_H_means[:n_h], 1))
-        axes[1, 2].plot(plot_x[:n_h], h_fit(cur_x_vals[:n_h]), '--', color=line_color, label=f"{display_label} (n={n_h})")
-        axes[1, 2].plot(plot_x, log_H_means, 'o', color=line_color, alpha=0.3)
+        if np.any(valid_h_idx):
+            n_h = find_linear_pts(cur_x_vals[valid_h_idx], log_H_means[valid_h_idx], f"{mat_name} High-E")
+            if n_h > 1:
+                h_fit = np.poly1d(np.polyfit(cur_x_vals[valid_h_idx][:n_h], log_H_means[valid_h_idx][:n_h], 1))
+                axes[1, 2].plot(plot_x[valid_h_idx][:n_h], h_fit(cur_x_vals[valid_h_idx][:n_h]), '--', color=line_color, label=f"{display_label} (n={n_h})")
+            axes[1, 2].plot(plot_x[valid_h_idx], log_H_means[valid_h_idx], 'o', color=line_color, alpha=0.3)
 
     # Apply Adaptive Limits
-    # Row 0: Intensity
     axes[0, 0].set_xlim(raw_lims); axes[0, 0].set_ylim(raw_lims)
     axes[0, 1].set_xlim(x_lims);   axes[0, 1].set_ylim(raw_lims)
     axes[0, 2].set_xlim(x_lims);   axes[0, 2].set_ylim(raw_lims)
     
-    # Row 1: Log transform
     axes[1, 0].set_xlim(log_lims); axes[1, 0].set_ylim(log_lims)
     axes[1, 1].set_xlim(x_lims);   axes[1, 1].set_ylim(log_lims)
     axes[1, 2].set_xlim(x_lims);   axes[1, 2].set_ylim(log_lims)
@@ -247,64 +253,74 @@ def perform_comprehensive_analysis(voltage, samples_dict, output_subdir, title_p
     plt.close()
 
 # --- Main Execution ---
-voltages = ['140kV', '160kV', '180kV']
-input_dir = 'results/20260331/'
-base_results_dir = f'results/thickness_decoupling/H_L_fit/{input_dir.split('/')[-2]}'
-step_mats = {0: 'Cu_step', 1: 'Fe_step', 2: 'Al_step_block'}
-thicknesses = { 'Cu_step': np.arange(2, 22, 2), 'Fe_step': np.arange(2, 22, 2), 'Al_step_block': np.arange(12, 32, 2) }
+voltages = ['200kV', '220kV', '240kV', '260kV', '280kV', '300kV', '320kV']
+filter_types = ['0.6mm', '1.2mm']
+input_dir = 'results/20260429_mask_generated'
+I0_val = 204.0  # 8-bit normalized
 
-# Load disk grades config for Z_eff proxy
-config_path = r'E:\multi_source_info\data_dir\disk_grades.json'
-with open(config_path, 'r', encoding='utf-8') as f:
-    full_config = json.load(f)
-date_match = re.search(r'(\d{8})', input_dir)
-data_date = date_match.group(1) if date_match else "20260331"
-grades_config = full_config.get(data_date, {})
+step_mats = {0: 'Cu_step', 1: 'Fe_step', 2: 'Al_step'}
+thicknesses = { 'Cu_step': np.arange(2, 22, 2), 'Fe_step': np.arange(2, 22, 2), 'Al_step': np.arange(12, 32, 2) }
 
-# 定义不同组的显示限制
-step_limits = {'raw_x': (0, 120),  'raw_y': (0, 130),  'log_x': (0.5, 5.0), 'log_y': (0.5, 5.0)}
-disk_limits = {'raw_x': (140, 210), 'raw_y': (140, 210), 'log_x': (0, 0.4),   'log_y': (0, 0.4)}
-
-for voltage in voltages:
-    print(f"\n>>> Processing {voltage} ...")
+for f_type in filter_types:
+    print(f"\n========================================")
+    print(f"Processing Filter: {f_type}")
+    print(f"========================================")
     
-    # 1. Step Samples Analysis
-    step_data = {}
-    for idx, name in step_mats.items():
-        p = f'{input_dir}/pixel_values/{voltage}_4mA_step_sample_{idx}_data.pkl'
-        if os.path.exists(p):
-            with open(p, 'rb') as f:
-                d = pickle.load(f)
-                step_data[name] = (d['pixels_low'], d['pixels_high'])
+    base_results_dir = f'results/thickness_decoupling/H_L_fit/20260429_mask_generated/{f_type}'
     
-    if step_data:
-        perform_comprehensive_analysis(voltage, step_data, f"{base_results_dir}/steps", 
-                                       "Step Sample", "Thickness (mm)", thicknesses, plot_mode='all')
+    for voltage in voltages:
+        print(f"\n>>> Processing {voltage} ...")
+        
+        # 1. Step Samples Analysis
+        step_data = {}
+        for idx, name in step_mats.items():
+            # 0429 naming format for steps: {mat_name}-calib-{f_type}-{voltage}-2mA-orig_step_sample_0_data.pkl
+            p = f'{input_dir}/pixel_values/{name}-calib-{f_type}-{voltage}-2mA-orig_step_sample_0_data.pkl'
+            if os.path.exists(p):
+                with open(p, 'rb') as f:
+                    d = pickle.load(f)
+                    step_data[name] = (d['pixels_low'], d['pixels_high'])
+        
+        if step_data:
+            perform_comprehensive_analysis(voltage, step_data, f"{base_results_dir}/steps", 
+                                           f"Step Sample ({f_type})", "Thickness (mm)", thicknesses, plot_mode='all', I0=I0_val)
 
-    # 2. Disk Samples Analysis (IDs 9-20)
-    disk_ids = range(9, 21)
-    disk_L_list, disk_H_list = [], []
-    active_z_effs = []
-    for d_id in disk_ids:
-        p = f'{input_dir}/pixel_values/{voltage}_4mA_disk_{d_id}_data.pkl'
-        if os.path.exists(p):
-            with open(p, 'rb') as f:
-                d = pickle.load(f)
-                disk_L_list.append(d['pixels_low'])
-                disk_H_list.append(d['pixels_high'])
+        # 2. Ore Samples Analysis
+        # Ore naming format: ore-*-{f_type}-{voltage}-2mA-orig_ore_0_data.pkl
+        ore_files = glob.glob(f'{input_dir}/pixel_values/ore-*-{f_type}-{voltage}-2mA-orig_ore_0_data.pkl')
+        
+        ore_L_list, ore_H_list = [], []
+        ore_names = []
+        
+        for p in ore_files:
+            # Extract ore name prefix like 'ore-01' from the filename
+            basename = os.path.basename(p)
+            match = re.match(r'(ore-[^-]+(?:-[^-]+)?)-', basename)
+            if match:
+                ore_name = match.group(1)
+            else:
+                ore_name = basename.split('-')[1] # fallback
                 
-                # Calculate Z_eff as grade proxy
-                if str(d_id) in grades_config:
-                    cu, fe, s = grades_config[str(d_id)]
-                    _, z_eff = calculate_effective_z(cu, fe, s)
-                    active_z_effs.append(z_eff)
+            with open(p, 'rb') as f:
+                d = pickle.load(f)
+                # Ensure the lists are wrapped correctly depending on how extract saved them
+                # For ore, it might just be a single list per file, but the plotting expects a list of steps
+                # So we make each ore a single "step"
+                if isinstance(d['pixels_low'], list):
+                    ore_L_list.append(d['pixels_low'][0])
+                    ore_H_list.append(d['pixels_high'][0])
                 else:
-                    active_z_effs.append(float(d_id))
-    
-    if disk_L_list:
-        disk_data = { "Mixed_Disks": (disk_L_list, disk_H_list) }
-        disk_x_coords = { "Mixed_Disks": np.array(active_z_effs) }
-        perform_comprehensive_analysis(voltage, disk_data, f"{base_results_dir}/disks", 
-                                       "Disk Sample (Z_eff Proxy)", "Equivalent Atomic Number (Z_eff)", disk_x_coords, color_by_step=True, plot_mode='means')
+                    ore_L_list.append(d['pixels_low'])
+                    ore_H_list.append(d['pixels_high'])
+                ore_names.append(ore_name)
+        
+        if ore_L_list:
+            disk_data = { "Mixed_Ores": (ore_L_list, ore_H_list) }
+            # Since we don't have a reliable Z_eff config for these specific ores yet, we just use a dummy index
+            dummy_coords = np.arange(len(ore_L_list))
+            disk_x_coords = { "Mixed_Ores": dummy_coords }
+            
+            perform_comprehensive_analysis(voltage, disk_data, f"{base_results_dir}/ores", 
+                                           f"Ore Sample ({f_type})", "Ore Index", disk_x_coords, color_by_step=True, plot_mode='means', I0=I0_val)
 
-print(f"\nAnalysis complete. Results saved in {base_results_dir}")
+print(f"\nAnalysis complete. Results saved in results/thickness_decoupling/H_L_fit/20260429_mask_generated")

@@ -16,7 +16,7 @@ def get_contour_centroid(contour):
         cX, cY = 0, 0
     return cX, cY
 
-def sort_contours(contours, tolerance=35, max_len=9, direction='y', reverse=False):
+def sort_contours(contours, tolerance=35, max_len=20, direction='y', reverse=False):
     """
     Sorts contours using a tiered approach.
     direction='x': Row-major (Group by Row Y, Sort by X inside row).
@@ -218,9 +218,10 @@ def check_step_gradient(straightened_image, threshold=10.0):
     
     return is_step, top_mean, mid_mean, bot_mean
 
-def classify_contour(cnt, ellipse_limit = 0.92, box_image_low=None, pixels_low=None):
+def classify_contour(cnt, ellipse_limit = 0.92, box_image_low=None, pixels_low=None, all_type=None):
     """
     Classifies the contour into ['block', 'step_sample', 'disk', 'ore'].
+    If all_type is specified, forces the classification to that type.
     Returns: (label, meta)
     """
     peri = cv2.arcLength(cnt, True)
@@ -248,15 +249,24 @@ def classify_contour(cnt, ellipse_limit = 0.92, box_image_low=None, pixels_low=N
         "top_m": 0, "mid_m": 0, "bot_m": 0
     }
 
-    if circularity > 0.82 or ellipse_ratio > ellipse_limit:
+    if all_type is not None:
+        label_raw = all_type
+    else:
+        if circularity > 0.82 or ellipse_ratio > ellipse_limit:
+            label_raw = 'disk'
+        elif rectangularity > 0.8:
+            label_raw = 'block'
+        else: 
+            label_raw = 'ore'
+
+    if label_raw == 'disk':
         label = 'disk'
         # DISK REFINEMENT: Calculate stats on 2/3 core
         if box_image_low is not None:
             core_pixels, center, core_radius = get_disk_core_info(box_image_low, cnt)
             meta["refined_pixels_low"] = core_pixels
             meta["disk_core"] = (center, core_radius)
-    elif rectangularity > 0.8:
-        label = 'block'
+    elif label_raw in ['block', 'step_sample']:
         if box_image_low is not None:
             means, s_boxes = get_10_step_means(box_image_low)
             meta["step_means"] = means
@@ -264,7 +274,7 @@ def classify_contour(cnt, ellipse_limit = 0.92, box_image_low=None, pixels_low=N
             
             is_step, m_top, m_mid, m_bot = check_step_gradient(box_image_low)
             meta["top_m"], meta["mid_m"], meta["bot_m"] = m_top, m_mid, m_bot
-            if is_step:
+            if all_type == 'step_sample' or (all_type is None and is_step):
                 label = "step_sample"
                 meta["refined_pixels_low"] = get_step_pixels_list(box_image_low, s_boxes)
             else:
@@ -273,7 +283,7 @@ def classify_contour(cnt, ellipse_limit = 0.92, box_image_low=None, pixels_low=N
 
         # 2. Fallback to std if only pixels are available
         elif pixels_low is not None:
-            if meta["std"] > 5.0: 
+            if all_type == 'step_sample' or (all_type is None and meta.get("std", 0) > 5.0): 
                 label = "step_sample"
             else:
                 label = "block"
@@ -281,8 +291,8 @@ def classify_contour(cnt, ellipse_limit = 0.92, box_image_low=None, pixels_low=N
         else:
             label = "block"
     else: 
-        label = "ore"
-        # ORE keeps ALL pixels as requested by user
+        label = label_raw
+        # ORE or other types keeps ALL pixels as requested by user
         meta["refined_pixels_low"] = pixels_low
         
     return label, meta
@@ -410,7 +420,9 @@ def get_inner_95_pixels(image, cnt):
         
     return image[eroded_mask == 255]
 
-def get_bricks(path = 'all_unnorm.png', roi = [200, -1, 600, 800], th_val = 175, th_type = cv2.THRESH_BINARY, fx=0.99, fy=1.0, sort_direction='y', vscale=1.0, vscale_interp=cv2.INTER_LINEAR):
+def get_bricks(path = 'all_unnorm.png', roi = [200, -1, 600, 800], th_val = 175, 
+    th_type = cv2.THRESH_BINARY, fx=0.99, fy=1.0, sort_direction='y', max_colwidth = 35,
+    vscale=1.0, vscale_interp=cv2.INTER_LINEAR, reverse_sort=False):
     """
     Main pipeline for batch feature extraction.
     
@@ -456,7 +468,7 @@ def get_bricks(path = 'all_unnorm.png', roi = [200, -1, 600, 800], th_val = 175,
             cnt_filtered.append(cnt)
     
     # Use tiered sorting algorithm for robust indexing
-    cnt_filtered = sort_contours(cnt_filtered, direction=sort_direction)
+    cnt_filtered = sort_contours(cnt_filtered, direction=sort_direction, tolerance=max_colwidth, reverse=reverse_sort)
 
     box_images = []
 
@@ -491,7 +503,9 @@ def get_bricks(path = 'all_unnorm.png', roi = [200, -1, 600, 800], th_val = 175,
 
     return pixels, contoured, [low, high], r_pixels, contoured_r, box_images, cnt_filtered
 
-def get_bricks_watershed(path = 'all_unnorm.png', roi = [200, -1, 600, 800], th_val = 175, th_type = cv2.THRESH_BINARY, fx=0.99, fy=1.0, sort_direction='y', vscale=1.0, vscale_interp=cv2.INTER_LINEAR):
+def get_bricks_watershed(path = 'all_unnorm.png', roi = [200, -1, 600, 800], th_val = 175, 
+    th_type = cv2.THRESH_BINARY, fx=0.99, fy=1.0, sort_direction='y', max_colwidth = 35,
+    vscale=1.0, vscale_interp=cv2.INTER_LINEAR, reverse_sort=False):
     """
     Watershed-based pipeline for separating touching/overlapping samples.
     Specifically designed for noisy or crowded 0409 TYM-data.
@@ -596,7 +610,7 @@ def get_bricks_watershed(path = 'all_unnorm.png', roi = [200, -1, 600, 800], th_
                     cnt_filtered.append(c)
     
     # Return to normal pipeline logic
-    cnt_filtered = sort_contours(cnt_filtered, direction=sort_direction)
+    cnt_filtered = sort_contours(cnt_filtered, direction=sort_direction, tolerance=max_colwidth, reverse=reverse_sort)
     
     contoured = cv2.cvtColor(low, cv2.COLOR_GRAY2BGR).copy()
     contoured_r = r_image.copy()
@@ -665,3 +679,78 @@ def correct_high_energy_distortion(image: np.ndarray, fx: float, fy: float = 1.0
         resized = resized[crop_top : crop_top + h, :].copy()
         
     return resized
+
+def normalize_image(image: np.ndarray, current_max: float = 50000.0, target_ratio: float = 0.8, target_bit_depth: int = 16) -> np.ndarray:
+    """
+    针对校准后的图片，将灰度值从理论最大值重新归一化到指定目标深度的一定比例。
+    
+    Parameters:
+        image (np.ndarray): 输入的原始高深度图像数据。
+        current_max (float): 图像当前被归一化到的最大灰度值（默认50000.0）。
+        target_ratio (float): 目标最大值占目标深度的比例（默认0.8）。
+        target_bit_depth (int): 目标位深，支持 8 或 16（默认16）。
+        
+    Returns:
+        np.ndarray: 重新归一化后的图像 (dtype为 np.uint8 或 np.uint16)。
+    """
+    if image is None:
+        return image
+        
+    if target_bit_depth == 16:
+        max_val = 65535.0
+        out_dtype = np.uint16
+    elif target_bit_depth == 8:
+        max_val = 255.0
+        out_dtype = np.uint8
+    else:
+        raise ValueError("target_bit_depth must be 8 or 16")
+        
+    target_max = max_val * target_ratio
+    scale_factor = target_max / current_max
+    
+    # 使用浮点运算避免溢出
+    normalized = image.astype(np.float32) * scale_factor
+    
+    # 限制范围，并转回对应的数据类型
+    np.clip(normalized, 0, max_val, out=normalized)
+    
+    return normalized.astype(out_dtype)
+
+def calculate_effective_z(cu: float, fe: float, s: float, z_base: float = 11.0, exponent: float = 2.94) -> tuple:
+    """
+    根据矿石品位（Cu, Fe, S）计算有效原子序数 (Z_eff)。
+    使用 Mayneord 公式: Z_eff = (sum(w_i * Z_i^exponent))^(1/exponent)
+    其中脉石基体（gangue）被视为背景。
+    
+    参数:
+    - cu: 铜品位 (%) (float)。
+    - fe: 铁品位 (%) (float)。
+    - s: 硫品位 (%) (float)。
+    - z_base: 脉石基体（主要成分通常为Al/Si）的参考原子序数 (float, 默认 11.0)。
+    - exponent: 有效原子序数计算中的指数幂次 (float, 默认 2.94，适用于光电效应主导区域)。
+    
+    返回:
+    - (z_eff_cufe, z_eff_cufes): 
+        z_eff_cufe: 仅考虑 Cu 和 Fe 时的有效原子序数。
+        z_eff_cufes: 同时考虑 Cu, Fe 和 S 时的有效原子序数。
+    """
+    w_cu = cu / 100.0
+    w_fe = fe / 100.0
+    w_s = s / 100.0
+    w_gangue = max(0.0, 1.0 - w_cu - w_fe - w_s)
+    
+    # 原子序数定义: Cu=29, Fe=26, S=16
+    Z_CU = 29.0
+    Z_FE = 26.0
+    Z_S = 16.0
+    
+    # 计算有效原子序数
+    # Formula: Z_eff = (w1*Z1^exp + w2*Z2^exp + ... + w_n*Zn^exp)^(1/exp)
+    
+    # 情况1: 仅 Cu + Fe (假设剩余部分为基体)
+    z_eff_cufe = (w_cu * (Z_CU**exponent) + w_fe * (Z_FE**exponent) + (1.0 - w_cu - w_fe) * (z_base**exponent)) ** (1.0/exponent)
+    
+    # 情况2: Cu + Fe + S (显式考虑硫，剩余部分为基体)
+    z_eff_cufes = (w_cu * (Z_CU**exponent) + w_fe * (Z_FE**exponent) + w_s * (Z_S**exponent) + w_gangue * (z_base**exponent)) ** (1.0/exponent)
+    
+    return float(z_eff_cufe), float(z_eff_cufes)

@@ -1,3 +1,50 @@
+## 2026-05-08
+- Created **`compare_zeff_methods.py`**: A new standalone script designed to compare different theoretical effective atomic number ($Z_{eff}$) calculation methods across the 98 Yinshan ore samples. The script generates a 2x2 comparison plot (`Zeff_Methods_Comparison.png`) analyzing the impacts of Sulfur inclusion, exponent variation (including simple mass weighting `exp=1.0`), and gangue Base Z adjustments on the final $Z_{eff}$ value.
+- Updated **`predict_disk_Z.py`**: Switched the regression plot (`Predicted Z vs Equivalent Z_eff`) from `plt.errorbar` to `plt.scatter` to remove error bars and provide a cleaner, less cluttered visualization of the sample means.
+- **Feature**: Added `reverse_sort` parameter to `get_bricks` and `get_bricks_watershed` in `utils_II.py` to allow reversing the order of extracted objects. Enabled `reverse_sort = True` by default for the `20260325_yinshan` dataset in `extract_sample_values.py` to correct the left-to-right labeling order from (6..0) to (0..6).
+- **Feature**: Added `all_type` parameter to `extract_sample_values.py` and `classify_contour` in `utils_II.py` to allow users to force a specific object classification (e.g., `'ore'`, `'disk'`) and bypass automatic geometric shape classification.
+- Updated **`predict_disk_Z.py`**: Added dynamic file naming templates (`1_98_position_3_{voltage}_ore_{d_id}`) inside the validation loop to correctly read the Yinshan 0325 dataset's `_data.pkl` and `_low.png`/`_high.png` files, resolving missing data errors during validation.
+- Created **`update_disk_grades_20260325.py`**: A dedicated script to parse the `2026_矿石数据采集-0325_银山铜矿_114.csv` file, extract the “院里化验” grades (Cu, Fe, S) for all 114 disks, and append them into `disk_grades.json` under the key `20260325`.
+- Updated **`predict_disk_Z.py`**:
+  - **Dataset Decoupling**: Separated the training parameters date (`params_file` path) from the validation dataset date. Set `TEST_DATA_DIR` to `20260325_yinshan` to allow applying the previously trained model directly to the new Yinshan disk dataset.
+  - **Iteration Expansion**: Increased the evaluation loop dynamically to process up to 114 disks.
+- Updated **`fit_hl_curve.py`**: Further refined visual aesthetics by decoupling markers from error bars. Mean points are now drawn with full opacity and increased size (`s=40` or `markersize=5`), while error bars are rendered with high transparency (`alpha=0.3`) and no markers. This creates a "bold points, faint bars" effect for better clarity.
+- Updated **`fit_hl_curve.py`**: Refined visualization and regression logic:
+    - Reduced errorbar opacity (`alpha=0.4`) for disk samples to improve clarity.
+    - Switched H-L and Log-Log trendline fitting to use **sample means** instead of individual pixels, providing more stable regression curves and eliminating rank warnings.
+    - Extended trendlines to cover the full visible plot range for better trend visualization.
+- Updated **`fit_hl_curve.py`**: Optimized **Adaptive Axis Limits** to improve plot readability and zooming:
+    - In `'means'` mode (Disks), limits are now calculated based only on sample means, ensuring the view is tightly focused on the data being plotted.
+    - In `'all'` mode (Steps), implemented robust percentile-based scaling (2%-98%) to prevent outlier pixels from shrinking the main data clusters.
+    - Increased relative padding to 15% for better visual framing.
+- Created **`equivalent_thickness_calc.py`**: A new standalone utility script to calculate the equivalent ore thickness corresponding to standard metal step wedges (Cu, Fe, Al) under dual-energy XRT. The script establishes a physical model for porphyry copper ore (incorporating chalcopyrite, pyrite, and gangue) and computes theoretical mass attenuation coefficients and densities to perform the equivalent thickness mapping based on the Beer-Lambert law.
+- Updated **`fit_hl_curve.py`**: Implemented **Adaptive Axis Limits** in `perform_comprehensive_analysis`. The function now automatically scans all sample data to determine optimal limits while enforcing row-wise consistency: 
+    - **Intensity Row**: All plots share a unified Raw Intensity scale for Y-axes and the H-vs-L X-axis.
+    - **Log Row**: All plots share a unified Attenuation scale for Y-axes and the LogH-vs-LogL X-axis.
+    - **Horizontal Alignment**: Columns 1 and 2 in both rows share unified Thickness/Z_eff X-limits.
+- Updated **`fit_hl_curve.py`**: Added `plot_mode` parameter to `perform_comprehensive_analysis` to support two visualization modes for scatter plots (All pixels vs. Means with error bars). Configured **Step Samples** to use 'all' pixels mode and **Disk Samples** to use 'means' mode with bidirectional error bars for clearer interpretation of mixed samples.
+- Updated **`fit_hl_curve.py`**: Expanded disk analysis range to IDs 9-20. The script now loads grade configurations from `disk_grades.json` and uses the calculated effective atomic number ($Z_{eff}$) as the x-coordinate (grade proxy) in analysis plots, providing a more physically meaningful comparison.
+- Updated **`predict_disk_Z.py`**: Extracted the hardcoded `disk_grades` dictionary into an external JSON configuration file (`E:\multi_source_info\data_dir\disk_grades.json`). The script now dynamically loads the grades based on the date extracted from the `params_file` path, enabling multi-date support.
+
+## 2026-05-07
+- Updated **`utils_II.py`**: Added `calculate_effective_z` function to centralize the calculation of effective atomic numbers (Z_eff) based on ore grades (Cu, Fe, S) using the Mayneord formula.
+- Updated **`predict_disk_Z.py`**: Refactored the script to use the centralized `calculate_effective_z` function, improving code maintainability and removing redundant calculation logic.
+
+## 2026-05-07
+- Updated **`extract_sample_values.py`**: Modified the image extraction logic so that when saving `high_low_images`, only the pixels strictly inside the contour are preserved. Pixels outside the contour but inside the bounding rectangle are now correctly masked and replaced with the maximum grayscale value (`255` or `65535` depending on image bit depth) to eliminate background noise.
+- Updated **`extract_sample_values.py`**: Added visual feedback to draw the minimum bounding rectangle (`minAreaRect`) used for image warping onto the saved `contoured.png` images. The bounding boxes are drawn in magenta.
+
+## 2026-05-06
+- Added automatic Chinese-to-English filename translation in `extract_0429_RaySov.py` to prevent OpenCV reading errors. Words like "铁阶梯", "铜阶梯", "校准后" are automatically converted to `Fe_step`, `Cu_step`, `calib`.
+- Swapped `cv2.imread` for `cv2.imdecode(np.fromfile(...))` in `extract_0429_RaySov.py` to robustly read 16-bit TIF images from directories containing non-ASCII (Chinese) characters (like "阶梯").
+- Upgraded **`normalize_16bit_image`** to **`normalize_image`** in `utils_II.py` to support variable target bit depths. It now correctly maps calibrated 16-bit X-ray images (max value 50,000) to either 80% of 65,535 (`uint16`) or 80% of 255 (`uint8`).
+- Updated `extract_0429_RaySov.py` so that both `'16bit'` and `'8bit'` read modes use `cv2.IMREAD_ANYDEPTH` (preserving raw 50k values) and apply `normalize_image` immediately upon loading, ensuring mathematically consistent extraction thresholds across different bit depths.
+- Created **`extract_0429_RaySov.py`** to handle specific data extraction for the 20260429 RaySov step sample dataset.
+- Added **`get_bricks_raysov`** function within `extract_0429_RaySov.py` to correctly split images into 0.6mm and 1.2mm filter regions, accommodating the 1024-pixel width format (0-255: 0.6mm LE, 256-511: 1.2mm LE, 512-767: 0.6mm HE, 768-1023: 1.2mm HE).
+
+## 2026-05-06
+- Updated **`fit_hl_curve.py`**: Added support for distinguishing individual disks with different colors in the h-l fit scatter plots. Introduced the `color_by_step` parameter in `perform_comprehensive_analysis` to dynamically apply categorical colormaps (tab10/tab20) based on sample sequence indices, improving visual separation for different disks while maintaining global regression fits.
+
 ## 2026-04-28
 - Created **`plot_row_mean.py`** to analyze and plot the mean pixel values of the first 10 rows across columns for the initially converted `.png` images.
 - Created **`read_raw.py`** to batch convert 16-bit `.raw` images (1024x1024) into `.png` format, saving them directly to a subfolder within the data directory.
@@ -202,6 +249,31 @@
 - Fixed `utils.py` missing imports (`numpy`, `cv2`, `pandas`) and external function imports (`preprocessing`).
 - Created `standard_sample.py` to automate contour detection and image saving for standard sample XRT data.
 - Processed `Sample_160kV_test1.tif` and generated `standard_sample_contoured.png`.
+
+## 2026-05-09
+- Created `fit_hl_curve_0429.py` to seamlessly adapt the comprehensive 2x3 grid visualization from `fit_hl_curve.py` to the 0429 dataset:
+    - Independent processing loops for `0.6mm` and `1.2mm` filter data with results saved into dedicated subdirectories.
+    - Updated naming conventions to match `orig` and `calib` 8-bit files (with $I_0=204$).
+    - Automatically collects all calibrated ore (`ore-*-orig`) files for joint sample plotting.
+- Redesigned `calculate_mu_m.py` visualization pipeline:
+    - Fixed Y-axis labeling to correctly render as a LaTeX formula: `$\mu_m \ (\mathrm{cm}^2/\mathrm{g})$`.
+    - Computed a true **Global Y-axis limit** across all datasets, voltages, and materials first, then applied it identically across all output figures to guarantee 100% strict limit unification.
+    - Modified the secondary plot to display $\mu_m$ vs Thickness for different voltages grouped by **Material** (one subplot per material containing 14 overlapping voltage curves).
+    - Visually mapped the Aluminum step x-axis to `2-20mm` for direct comparative alignment with Copper and Iron, while keeping the physical calculation at `12-30mm`.
+    - Added rigorous signal filtering (`mean > 1` and `mean < I0`) to prevent outlier pixels or background noise from generating massively skewed negative or infinite logarithms.
+- Switched 0429 dataset processing (both extraction and mu_m calculation) to **8-bit** mode (normalization target: 80% of 255).
+- Updated `calculate_mu_m.py` to support the 20260429 dataset:
+    - Added separate visualization for 0.6mm and 1.2mm filter regions.
+    - Updated filename pattern to match the English translated names (e.g., `calib`, `Fe_step`) from the mask extraction process.
+- Refined `extract_0429_RaySov_from_mask.py`:
+    - Implemented automatic filename translation (e.g., "铁阶梯" -> "Fe_step") to ensure results are saved with English names.
+    - Updated output path to `results/20260429_mask_generated` to match project-wide standards.
+    - Integrated `save_contour_data` to match the `.pkl` and `.png` saving format of `extract_sample_values.py`. and reversed step ordering to **Bottom-to-Top** (Thin-to-Thick, `S1`=thinnest).
+- Created `extract_0429_RaySov_from_mask.py` to batch extract pixel values directly from manually annotated `.png` masks in the `20260429_mask_generated` directory, separating Low-Energy and High-Energy data automatically.
+- Added adaptive normalization logic inside `extract_0429_RaySov_from_mask.py` which scales values to 80% of 65536 for `.orig.tif` files while preserving completely raw values for `.user.tif` files.
+- Completely refactored `extract_0429_RaySov.py` to extract step samples globally instead of pre-cropping.
+- Implemented `find_step_sample_corners` in `extract_0429_RaySov.py` to geometrically identify the true left and right vertical edges of the step sample, allowing for perfect straightening while computationally ignoring the wider bracket at the bottom.
+- Added splitting logic mapping the exact global filter boundary (`X=256`) into the straightened warped image, allowing independent 10-step sample extraction for both 0.6mm and 1.2mm halves simultaneously.
 
 ## 2026-04-08
 - Created `validate_speed.py` to compare XRT images at 0.5 m/s and 3.0 m/s.
