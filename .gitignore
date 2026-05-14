@@ -1,3 +1,5 @@
 *png
 *pkl
 *.pyc 
+*.csv
+*.pdf

@@ -72,9 +72,20 @@ def perform_comprehensive_analysis(voltage, samples_dict, output_subdir, title_p
     log_lims = (max(0, log_min - pad_log), log_max + pad_log)
 
     X_glob = np.concatenate(all_x_vals)
-    x_min, x_max = X_glob.min(), X_glob.max()
-    pad_x = (x_max - x_min) * 0.1 if x_max > x_min else 1.0
-    x_lims = (x_min - pad_x, x_max + pad_x)
+    is_categorical = X_glob.dtype.kind in 'U S O'
+    
+    if is_categorical:
+        unique_labels = []
+        for val in X_glob:
+            if val not in unique_labels: unique_labels.append(val)
+        label_to_idx = {l: i for i, l in enumerate(unique_labels)}
+        x_min, x_max = 0, len(unique_labels) - 1
+        pad_x = 0.5
+        x_lims = (x_min - pad_x, x_max + pad_x)
+    else:
+        x_min, x_max = X_glob.min(), X_glob.max()
+        pad_x = (x_max - x_min) * 0.1 if x_max > x_min else 1.0
+        x_lims = (x_min - pad_x, x_max + pad_x)
 
     # 自动寻找线性区间算法
     def find_linear_pts(x_pts, y_pts, label=""):
@@ -118,9 +129,14 @@ def perform_comprehensive_analysis(voltage, samples_dict, output_subdir, title_p
         valid = (L_all > 1) & (H_all > 1) & (L_all < 255) & (H_all < 255)
         L_v, H_v = L_all[valid], H_all[valid]
         
-        cur_x_vals = x_coords_dict[mat_name][:len(L_list)]
-        plot_x = cur_x_vals - 10 if 'Al' in mat_name and 'step' in title_prefix.lower() else cur_x_vals
-        display_label = f"{mat_name}" + (" (t-10mm)" if 'Al' in mat_name and 'step' in title_prefix.lower() else "")
+        cur_x_raw = x_coords_dict[mat_name][:len(L_list)]
+        if is_categorical:
+            cur_x_vals = np.array([label_to_idx[str(l)] for l in cur_x_raw])
+        else:
+            cur_x_vals = np.array(cur_x_raw)
+
+        plot_x = cur_x_vals - 10 if (not is_categorical and 'Al' in mat_name and 'step' in title_prefix.lower()) else cur_x_vals
+        display_label = f"{mat_name}" + (" (t-10mm)" if (not is_categorical and 'Al' in mat_name and 'step' in title_prefix.lower()) else "")
 
         # 先绘制 axes[0, 1] 以获取该 material 的 base_color
         eb_alpha = 0.3 if plot_mode == 'means' else 0.6
@@ -141,12 +157,12 @@ def perform_comprehensive_analysis(voltage, samples_dict, output_subdir, title_p
                     valid_i = (l > 1) & (h > 1) & (l < 255) & (h < 255)
                     if np.any(valid_i):
                         if plot_mode == 'all':
-                            axes[0, 0].scatter(l[valid_i], h[valid_i], color=cmap(i), alpha=0.05, s=0.5, label=f"ID:{cur_x_vals[i]:.1f}")
+                            axes[0, 0].scatter(l[valid_i], h[valid_i], color=cmap(i), alpha=0.05, s=0.5, label=f"ID:{cur_x_raw[i]}")
                         else: # 'means'
                             m_l, m_h = np.mean(l[valid_i]), np.mean(h[valid_i])
                             s_l, s_h = np.std(l[valid_i]), np.std(h[valid_i])
                             axes[0, 0].errorbar(m_l, m_h, xerr=s_l, yerr=s_h, fmt='none', color=cmap(i), capsize=2, alpha=0.3)
-                            axes[0, 0].scatter(m_l, m_h, color=cmap(i), s=40, label=f"ID:{cur_x_vals[i]:.1f}", edgecolors='none')
+                            axes[0, 0].scatter(m_l, m_h, color=cmap(i), s=40, label=f"ID:{cur_x_raw[i]}", edgecolors='none')
                 fit_color = 'black'
             else:
                 if plot_mode == 'all':
@@ -237,6 +253,9 @@ def perform_comprehensive_analysis(voltage, samples_dict, output_subdir, title_p
         for c in range(3): 
             axes[r, c].grid(True)
             leg = axes[r, c].legend(fontsize='x-small')
+            if is_categorical and (r, c) in [(0, 1), (0, 2), (1, 1), (1, 2)]:
+                axes[r, c].set_xticks(range(len(unique_labels)))
+                axes[r, c].set_xticklabels(unique_labels, rotation=45, fontsize=8)
             if leg:
                 for lh in leg.legend_handles if hasattr(leg, 'legend_handles') else leg.legendHandles:
                     lh.set_alpha(1.0)
@@ -247,9 +266,9 @@ def perform_comprehensive_analysis(voltage, samples_dict, output_subdir, title_p
     plt.close()
 
 # --- Main Execution ---
-voltages = ['140kV', '160kV', '180kV']
-input_dir = 'results/20260331/'
-base_results_dir = f'results/thickness_decoupling/H_L_fit/{input_dir.split('/')[-2]}'
+voltages = ['140kV', '150kV', '160kV', '170kV', '180kV']
+input_dir = 'results/20260401/'
+base_results_dir = f'results/thickness_decoupling/H_L_fit/{input_dir.strip("/").split("/")[-1]}'
 step_mats = {0: 'Cu_step', 1: 'Fe_step', 2: 'Al_step_block'}
 thicknesses = { 'Cu_step': np.arange(2, 22, 2), 'Fe_step': np.arange(2, 22, 2), 'Al_step_block': np.arange(12, 32, 2) }
 
@@ -281,30 +300,69 @@ for voltage in voltages:
         perform_comprehensive_analysis(voltage, step_data, f"{base_results_dir}/steps", 
                                        "Step Sample", "Thickness (mm)", thicknesses, plot_mode='all')
 
-    # 2. Disk Samples Analysis (IDs 9-20)
-    disk_ids = range(9, 21)
+    # 2. Disk Samples Analysis
+    import glob
+    disk_files = glob.glob(f'{input_dir}/pixel_values/*{voltage}*disk*_data.pkl')
+    
     disk_L_list, disk_H_list = [], []
     active_z_effs = []
-    for d_id in disk_ids:
-        p = f'{input_dir}/pixel_values/{voltage}_4mA_disk_{d_id}_data.pkl'
-        if os.path.exists(p):
-            with open(p, 'rb') as f:
-                d = pickle.load(f)
-                disk_L_list.append(d['pixels_low'])
-                disk_H_list.append(d['pixels_high'])
-                
-                # Calculate Z_eff as grade proxy
-                if str(d_id) in grades_config:
-                    cu, fe, s = grades_config[str(d_id)]
-                    _, z_eff = calculate_effective_z(cu, fe, s)
-                    active_z_effs.append(z_eff)
-                else:
-                    active_z_effs.append(float(d_id))
+    for p in disk_files:
+        fname = os.path.basename(p)
+        match = re.search(r'disk_(\d+)_data\.pkl', fname, re.IGNORECASE)
+        d_id = match.group(1) if match else "???"
+        
+        with open(p, 'rb') as f:
+            d = pickle.load(f)
+            disk_L_list.append(d['pixels_low'][0] if isinstance(d['pixels_low'], list) else d['pixels_low'])
+            disk_H_list.append(d['pixels_high'][0] if isinstance(d['pixels_high'], list) else d['pixels_high'])
+            
+            # Calculate Z_eff as grade proxy
+            if str(d_id) in grades_config:
+                cu, fe, s = grades_config[str(d_id)]
+                _, z_eff = calculate_effective_z(cu, fe, s)
+                active_z_effs.append(z_eff)
+            else:
+                active_z_effs.append(float(d_id) if d_id.isdigit() else 0.0)
     
     if disk_L_list:
         disk_data = { "Mixed_Disks": (disk_L_list, disk_H_list) }
         disk_x_coords = { "Mixed_Disks": np.array(active_z_effs) }
         perform_comprehensive_analysis(voltage, disk_data, f"{base_results_dir}/disks", 
                                        "Disk Sample (Z_eff Proxy)", "Equivalent Atomic Number (Z_eff)", disk_x_coords, color_by_step=True, plot_mode='means')
+
+    # 3. Ore Samples Analysis
+    def natural_sort_key(s):
+        return [int(text) if text.isdigit() else text.lower() for text in re.split('([0-9]+)', s)]
+
+    raw_ore_files = glob.glob(f'{input_dir}/pixel_values/*{voltage}*ore*_data.pkl')
+    ore_files = sorted(raw_ore_files, key=natural_sort_key)
+    
+    ore_L_list, ore_H_list, ore_ids = [], [], []
+    for p in ore_files:
+        fname = os.path.basename(p)
+        match = re.search(r'(?:(.*?)_)?ore_(\d+)_data\.pkl', fname, re.IGNORECASE)
+        if match:
+            prefix, oid = match.groups()
+            oid_int = int(oid)
+            if prefix and "1_20" in prefix:
+                label = str(oid_int)
+            elif prefix and "21_38" in prefix:
+                label = str(oid_int + 20)
+            else:
+                label = f"{prefix}_{oid}" if prefix and prefix not in [voltage, "ores", f"{voltage}_6"] else oid
+        else:
+            label = "???"
+        
+        with open(p, 'rb') as f:
+            d = pickle.load(f)
+            ore_L_list.append(d['pixels_low'][0] if isinstance(d['pixels_low'], list) else d['pixels_low'])
+            ore_H_list.append(d['pixels_high'][0] if isinstance(d['pixels_high'], list) else d['pixels_high'])
+            ore_ids.append(label)
+            
+    if ore_L_list:
+        ore_data = { "Mixed_Ores": (ore_L_list, ore_H_list) }
+        ore_x_coords = { "Mixed_Ores": np.array(ore_ids) }
+        perform_comprehensive_analysis(voltage, ore_data, f"{base_results_dir}/ores", 
+                                       "Ore Sample", "Ore ID", ore_x_coords, color_by_step=True, plot_mode='means')
 
 print(f"\nAnalysis complete. Results saved in {base_results_dir}")

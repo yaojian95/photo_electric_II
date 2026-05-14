@@ -11,17 +11,25 @@ This workspace focus on validating XRT image quality and extracting standard sam
 ### `equivalent_thickness_calc.py`
 - **Purpose**: A standalone utility script to calculate the equivalent ore thickness corresponding to standard metal step wedges (Cu, Fe, Al) under dual-energy XRT.
 - **Functions**:
-    - `calc_ore_properties(cu_grade_percent, py_grade_percent, porosity)`: 
+    - `get_mineral_properties(energy_kev)`: 根据给定能量（keV）动态从 NIST 获取元素的质量衰减系数，并计算黄铜矿、黄铁矿和脉石的物理属性。
+    - `calc_ore_properties(cu_grade_percent, py_grade_percent, porosity, props)`: 
         - 计算给定品位下的矿石的理论密度和质量衰减系数。
         - 内部构建了斑岩型铜矿的物理模型，考虑了黄铜矿(CuFeS2)、伴生黄铁矿(FeS2)和脉石(SiO2)的比例。
-    - `calc_equivalent_thickness(metal_type, metal_thickness_mm, cu_grade_percent, py_grade_percent, porosity)`: 
-        - 基于等效衰减原理（比尔-朗伯定律），计算纯金属（Cu, Fe, Al）厚度所对应的实际矿石厚度。
+    - `run_thickness_analysis(energy_kev, cu_grade, py_grade, porosity)`: 
+        - 主分析函数，输出不同能量下的厚度转换表和倍率。
 - **Workflow**:
-    1. Defines physical constants ($\mu_m$, $\rho$) for key elements and minerals at ~100 keV.
-    2. Uses `calc_ore_properties` to determine the aggregate attenuation properties of the ore mixture.
-    3. Iterates over standard step wedge thicknesses (2mm to 20mm).
-    4. Prints a formatted table and the conversion ratios (e.g., Cu step translates to ~7.5x thicker ore).
+    1. 从 `get_mu_from_nist_new` 动态获取物理常数 ($\mu_m$)。
+    2. 计算矿石混合物的综合衰减特性。
+    3. 输出金属与矿石、以及金属与金属之间的等效厚度表。
 
+### `get_mu_from_nist_new.py`
+- **Purpose**: NIST 官方 X 射线质量衰减系数爬取与插值工具。
+- **Functions**:
+    - `fetch_mu_rho(element_symbol)`: 爬取指定元素的 NIST 原始衰减数据。
+    - `get_mu_rho_interpolated(element_symbol, target_energies_keV)`: 在对数空间执行 Pchip 插值，获取指定能量下的 $\mu/\rho$。
+    - `get_energy_from_mu(element_symbol, mu_list)`: 
+        - **核心功能**: 根据输入的线衰减系数 $\mu$ (cm^-1) 列表，反向推算出对应的平均 X 射线能量 (keV)。
+        - 参数 `element_symbol`: 物质种类 ('Fe', 'Al', 'Cu')；`mu_list`: 线衰减系数列表。
 
 ### `utils_II.py`
 - **Purpose**: Local wrapper for dual-energy XRT processing.
@@ -169,6 +177,7 @@ This workspace focus on validating XRT image quality and extracting standard sam
 - **Output Structure**:
     - `results/thickness_decoupling/h-l-fit/steps/`: Contains Cu, Fe, and Al step-sample analysis.
     - `results/thickness_decoupling/h-l-fit/disks/`: Contains analysis for graded disks (IDs 9-17).
+    - `results/thickness_decoupling/h-l-fit/ores/`: Contains mixed ore samples plotting against their IDs.
 - **Functions**:
     - `perform_comprehensive_analysis(voltage, samples_dict, output_subdir, title_prefix, x_label, x_coords_dict, color_by_step=False, plot_mode='all')`: 通用 2x3 综合分析绘图函数。
         - 参数 `voltage`: 当前处理的电压值 (str, 例如 '140kV')。
@@ -179,9 +188,9 @@ This workspace focus on validating XRT image quality and extracting standard sam
         - 参数 `x_coords_dict`: X轴坐标字典，格式为 `{mat_name: ndarray}` (dict)。
         - 参数 `color_by_step`: 是否按照步进/圆盘的索引使用不同的颜色绘制散点图 (bool, 默认False)。
         - 参数 `plot_mode`: 散点图绘制模式 ('all' 或 'means')。
-        - **特性**: 自动扫描数据确定自适应坐标轴限制，并强制每一行的 Y 轴（及相关 X 轴）保持一致以增强可比性。
+        - **特性**: 自动扫描数据确定自适应坐标轴限制，并强制每一行的 Y 轴（及相关 X 轴）保持一致以增强可比性。**现已支持自动识别和映射类别型 (Categorical) X 轴变量 (如矿石 ID)。**
 - **Workflow**:
-    1. **Iterative Loading**: Dynamically loads data from single files (steps) or multiple files (disks). Now supports disks **9-20**.
+    1. **Iterative Loading**: Dynamically loads data from single files (steps), multiple files (disks), and wildcard matching for ores. Now supports datasets like `20260401` up to 5 voltages (140kV-180kV), including logic to combine multi-image ore extracts (e.g. `1_20` and `21_38`) into a continuous 0-37 ID sequence.
     2. **Z_eff Integration**: Loads disk grades from `disk_grades.json` and calculates $Z_{eff}$ (using `utils_II.calculate_effective_z`) to use as the x-coordinate (grade proxy).
     3. **Group-Specific Calibration**: Applies different axis limits for step samples (low gray value, high attenuation) and disk samples (high gray value, low attenuation) to ensure visibility.
     3. **Total Visualization**: Disables subsampling to plot every valid pixel in H-L space.

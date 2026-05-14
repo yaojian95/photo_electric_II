@@ -14,18 +14,22 @@ import pandas as pd
 from utils_II import get_bricks, get_bricks_watershed, classify_contour, save_contour_data, warp_straighten
 
 def main():
-    # data_dir = r'E:\multi_source_info\data_dir\20260402'
+    data_dir = r'E:\multi_source_info\data_dir\20260402'
     # data_dir = r'E:\multi_source_info\data_dir\20260331'
     # data_dir = r'E:\multi_source_info\data_dir\20260407_Sample_test'
-    roi = [0, 1200, 200, 1336]; th_val = 190; fy = 0.9909 #fy单独控制高能图像的校准比例
-    align_direct = 'y'
+    roi = [0, 1200, 200, 1336]; all_type = None; align_direct = 'y'
+
+    data_dir = r'E:\multi_source_info\data_dir\20260401'; 
+    roi = [0, 1200, 100, 1486]; all_type = 'ore'; align_direct = 'x'
+    th_val = 190; fy = 0.9909 #fy单独控制高能图像的校准比例
+    
     # Set to a specific string (e.g., 'ore', 'disk', 'block', 'step_sample') to force all contours 
     # to be classified as that type. Set to None for automatic classification based on geometry.
-    # all_type = None 
+    
     reverse_sort = False
 
-    data_dir = r'E:\multi_source_info\data_dir\20260325_yinshan'; roi = [0, 1625, 200, 1336]
-    all_type = 'ore'; th_val = 140; fy = 0.9909; align_direct = 'x'; reverse_sort = True
+    # data_dir = r'E:\multi_source_info\data_dir\20260325_yinshan'; roi = [0, 1625, 200, 1336]
+    # all_type = 'ore'; th_val = 140; fy = 0.9909; align_direct = 'x'; reverse_sort = True
 
     # data_dir = r'E:\multi_source_info\data_dir\20260409_TYM-data\TYM_test'
     # data_dir = r'E:\multi_source_info\data_dir\20260409_TYM-data\TYM_converted_results'

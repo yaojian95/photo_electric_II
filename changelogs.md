@@ -1,3 +1,13 @@
+## 2026-05-13
+- **Updated**: `fit_hl_curve.py` 仿照 `fit_hl_curve_0429.py` 添加了对于 0401 文件夹中矿石数据的画图处理，包括类别型（Categorical）X轴数据（如矿石ID）的自适应映射与坐标轴展示支持，并更新了执行配置以处理0401数据（包含140kV至180kV电压组）。同时增加了专门针对0401矿石数据的序号拼接逻辑，自动将含有 `1_20` 和 `21_38` 前缀的提取文件（后缀 0~19 和 0~17）整合为连续的 0-37 号整体矿石序列。
+
+## 2026-05-12
+- **New Feature**: Created `get_mu_from_nist.py` to automate downloading mass attenuation coefficient ($\mu/\rho$) data from NIST for elements (Fe, Cu, Al, etc.).
+- **Feature**: Implemented `NISTMuInterpolator` for high-precision log-log cubic spline interpolation of $\mu$ values.
+- **Feature**: Added JSON export (`nist_mu_data.json`) to allow cross-script data sharing and persistence of fitted data.
+- **Feature**: Added visualization logic to compare multiple elements (Fe, Cu, Al) in a single plot, highlighting the typical XRT energy range (20-150 keV).
+- **Updated**: Updated `code_explanation.md` with descriptions of the new NIST data tool and its functions.
+
 ## 2026-05-08
 - Created **`compare_zeff_methods.py`**: A new standalone script designed to compare different theoretical effective atomic number ($Z_{eff}$) calculation methods across the 98 Yinshan ore samples. The script generates a 2x2 comparison plot (`Zeff_Methods_Comparison.png`) analyzing the impacts of Sulfur inclusion, exponent variation (including simple mass weighting `exp=1.0`), and gangue Base Z adjustments on the final $Z_{eff}$ value.
 - Updated **`predict_disk_Z.py`**: Switched the regression plot (`Predicted Z vs Equivalent Z_eff`) from `plt.errorbar` to `plt.scatter` to remove error bars and provide a cleaner, less cluttered visualization of the sample means.

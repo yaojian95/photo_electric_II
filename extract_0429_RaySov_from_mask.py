@@ -3,6 +3,7 @@ import cv2
 import numpy as np
 import pandas as pd
 import pickle
+import re
 from utils_II import normalize_image, save_contour_data
 
 def process_masks_and_extract():
@@ -66,8 +67,9 @@ def process_masks_and_extract():
                 img = normalize_image(img, current_max=50000.0, target_ratio=0.8, target_bit_depth=8)
                 norm_status = "Normalized (8bit 80%)"
             elif 'user' in tif_name.lower():
-                # 提取原始像素值
-                norm_status = "Raw Pixels"
+                # 已经归一化到 65536*0.8 (16位)，现在降为 8 位
+                img = normalize_image(img, current_max=65535.0, target_ratio=1.0, target_bit_depth=8)
+                norm_status = "Normalized (8bit from 16bit-user)"
             else:
                 norm_status = "Unknown (Raw)"
                 
@@ -87,6 +89,21 @@ def process_masks_and_extract():
                 low_mask_bin = cv2.bitwise_not(low_mask_bin)
             
             if category == 'ore':
+                # 解析矿石编号逻辑：
+                # 1. 优先匹配 Ore-A-B- 模式 (A, B 可以是数字或字母如 PbZn)
+                # 这种模式下，0.6mm 取 A，1.2mm 取 B
+                match = re.search(r'Ore-([^-]+)-([^-]+)-', base_name, re.IGNORECASE)
+                if match:
+                    id1, id2 = match.groups()
+                    actual_id = id1 if '0.6mm' in tif_name.lower() else id2
+                    # 将文件名中的 Ore-A-B- 替换为 Ore-实际ID-
+                    save_name = base_name.replace(match.group(0), f"Ore-{actual_id}-")
+                elif '01' in base_name:
+                    actual_id = '01'
+                    save_name = base_name
+                else:
+                    save_name = base_name
+
                 # Ore 提取全局掩膜区域的像素
                 pixels_low = low_img[low_mask_bin == 255]
                 # 对高能区域应用同样的掩膜位置
@@ -101,7 +118,7 @@ def process_masks_and_extract():
                 x, y, w, h = cv2.boundingRect(low_mask_bin)
                 box_low = low_img[y:y+h, x:x+w]
                 box_high = high_img[y:y+h, x:x+w]
-                save_contour_data(output_dir, base_name, 'ore', 0, pixels_low, pixels_high, [box_low, box_high, None])
+                save_contour_data(output_dir, save_name, 'ore', 0, pixels_low, pixels_high, [box_low, box_high, None])
 
                 all_data.append({
                     "File": tif_name,
