@@ -1,3 +1,49 @@
+## 2026-05-18
+- **New Feature**: 在 `label_ores` 中新增了水平镜像翻转底图与轮廓映射的特性，完美响应用户关于左右反转渲染结果的要求：
+    - 使用 `cv2.flip(labeled_img, 1)` 对底图进行水平翻转。
+    - 同步将所有提取出的轮廓 X 坐标更新为 `W - 1 - x`，确保所有半透明填充、描边与高对比度文字框能以极高的精度自动对齐至反转后的新物理坐标。
+    - **非镜像文字显示**：绘制步骤在底图和轮廓翻转完成后进行，使得所有分类标识文字（`1`~`4`）和 1-based 序号（`#序号`）均保持正常、非镜像、极其易读的从左到右文本显示。
+- **Optimization**: 更新并完善 `pick_ores.py` 的方法3：
+    - 更新了 Q1、Q2、Q3 和 Q4 的最新 1-based 静态矿石分类编号集合（各区间分别拥有 31, 30, 30, 30 块矿石，总计 121 块，实现完美映射）。
+    - 重新设计并优化了矿石序号（`#序号`）的绘制布局：将序号绘制在每个矿石外接矩形（Bounding Box）的正上方空隙外（高度为 `y - id_h - 8` 像素处），配有专属高对比度圆角深灰黑背景与亮白文本；若矿石处于图像最顶端，则自动贴紧矿石内部上边沿绘制。这使得序号彻底与位于几何中心的等级数字类别标签（`1`~`4`）在纵向上完美拉开，即使面对小尺寸矿石，也能做到 100% 的视觉分离，完全杜绝重叠。
+- **Hotfix**: 修复了 `pick_ores.py` 中 `save_image_robust` 函数的缩进和文档字符串语法错误，恢复为标准的 4 空格缩进，消除运行时的 IndentationError。
+- **New Feature**: 在 `label_ores` 中引入并支持 `reverse_sort` 参数，完美解决矿石序号与分类预测结果的排列顺序对齐问题：
+    - 对齐了 Yinshan (银山) 等特定数据集所要求的 `reverse_sort = True` 行内从右至左的逆序排列规则。
+    - 详细解释了参数的作用与用法，确保 1-based 矿石序号标注（`#1` ~ `#121`）与物理分类预测结果的逐一精确映射，彻底杜绝排序方向冲突引起的逻辑错乱与视觉偏差。
+- **New Feature**: 重构并实现 `pick_ores.py` 的**方法3** (基于用户指定的 1-based 静态矿石编号集合进行四档分类渲染)：
+    - 输入用户给出的前 25% (31块)、25%-50% (30块)、50%-75% (30块) 和 倒数 25% (30块) 的静态矿石 ID 集合。
+    - **类别数值与高性能标注优化**：核心黑框背景标签内直接通过 OpenCV 绘制极其醒目、高对比度的数字类别（**`1`**、**`2`**、**`3`**、**`4`**），代表第一至第四类矿石，对应颜色半透明蒙层及不透明边界，而在矿石顶部边缘精确附上 1-based 序号 `f"#{ore_id}"`，完美兼顾了查找定位与运行的高清极速。
+    - **兜底稳定性机制**：针对非指定样本的图片测试，内置了基于轮廓索引排名的动态比例四等分分档算法作为 Fallback 兜底，确保算法的绝对健壮。
+- **Refactoring**: 将 `utils_II.py` 中被 `pick_ores.py` 调用的核心几何提取和畸变校正函数（如 `get_bricks`, `get_bricks_watershed`, `split_dual_xray_image`, `sort_contours`, `correct_high_energy_distortion` 等）直接拷贝集成进 `pick_ores.py` 内。现在 `pick_ores.py` **完全独立且不再依赖导入 `utils_II.py`**，极大减少了外部依赖并提升了离线验证和打包执行的稳定性。
+- **New Feature**: 重构并实现 `pick_ores.py` 的**方法2** (基于有效原子序数 $Z_{eff}$ 的多档分类)：
+    - 输入模型 1 和 2 的 $Z_{eff}$ 预测值，各自归一化至 `[0, 1]` 区间并等分为 4 档 (`T1` 至 `T4`)。
+    - **加权决策逻辑优化**：对于两模型预测分档不一致的矿石，采用已归一化值的加权和 $Z_{norm, weighted} = 0.6 \cdot Z_{norm, 1} + 0.4 \cdot Z_{norm, 2}$ 直接划分档位，无需再进行二次全局归一化，极大简化并稳定了判定逻辑。
+    - **参数可控化**：在 `label_ores` 中引入 `method` 参数 (1 或 2)，默认为方法2，并在主程序入口支持直接通过文件内参数切换测试不同的图像（如 CuO 测试图）和预测数据。
+- **New Feature**: 在 `test_pick_ores.py` 测试脚本中增加方法 1、方法 2 以及短列表填充等多用例离线校验，确保代码的绝对正确和健壮性。
+- **New Feature**: Created `pick_ores.py` to extract ore contours using `utils_II.py` and visually label them based on binary predictions (1 for concentrate, 0 for waste) from two separate classification models.
+    - Implemented `label_ores`: Core pipeline supporting both standard and watershed contour extraction, length mismatch handling (padding/truncating), and high-fidelity visualization.
+    - Designed premium aesthetics including class-specific semi-transparent mask overlays, thick colorful boundary outlines, and contrast-enhanced white-on-grey text annotations centered at contour centroids with index tracking.
+    - Supported robust file saving via `cv2.imencode` to prevent Unicode/Chinese encoding failures on Windows.
+    - Transitioned script execution in the `if __name__ == '__main__':` block to be controlled via configurable internal input variables instead of CLI arguments, with defaults pre-configured for the Yinshan dataset (`E:\multi_source_info\data_dir\20260325_yinshan\big_ores_position_2_160kV.tif`), making it easy to run and test immediately.
+- **New Feature**: Added `plot_ul_cdf` to `utils_II.py` to compute and plot the Cumulative Distribution Function (CDF) curve of physical low-energy attenuation $u_L$ (ul) values for ore samples, automatically displaying the Mean, Median, and a 50% probability reference line for highly detailed statistical analysis.
+- **Updated**: Modified `fit_hl_curve_0429.py` to call `utils_II.plot_ul_cdf` inside the ore loops of both the `0429` (0.6mm and 1.2mm) and `0401` datasets, automatically generating and saving cumulative distribution (CDF) graphs for all processed ore samples across voltages.
+- **Updated**: Synchronized `code_explanation.md` with detailed parameter descriptions, types, and usages for `plot_ul_cdf`.
+- **Refactoring**: Robustly refactored `fit_hl_curve_0429.py` to resolve absolute paths relative to `script_dir`, ensuring correct path resolution and script execution regardless of the shell's current working directory (CWD) (e.g. running from `contour_app`).
+
+
+## 2026-05-15
+- **New Feature**: Developed the **Contour Extraction GUI Tool** using `CustomTkinter`. 
+    - Created `contour_app/app.py`: A modern desktop interface for real-time parameter tuning (threshold, ROI, scaling).
+    - Created `contour_app/processor.py`: A decoupled backend wrapper for `utils_II` logic, supporting both 8-bit and 16-bit image processing.
+    - Added real-time preview, file selection, and result exporting capabilities.
+    - Provided a comprehensive guide for packaging into a single `.exe` using PyInstaller.
+- **New Feature**: Created `analyze_energy_hardening.py` to implement a physics-based energy back-calculation method...
+
+## 2026-05-14
+- **Feature**: Added `analysis_target` parameter to `fit_hl_curve_0429.py` to allow selective analysis of "step", "ore", or "all" data.
+- **Bugfix**: Fixed indentation and logic errors in `fit_hl_curve_0429.py`, implementing robust case-insensitive file matching and correct mapping between 0429 and 0401 ore datasets.
+- **Feature**: Updated `fit_hl_curve_0429.py` to extract and plot the $u_L/u_H$ ratio ($\ln(I_0/L)/\ln(I_0/H)$) versus voltage for each individual ore sample (Ores 0-6).
+
 ## 2026-05-13
 - **Updated**: `fit_hl_curve.py` 仿照 `fit_hl_curve_0429.py` 添加了对于 0401 文件夹中矿石数据的画图处理，包括类别型（Categorical）X轴数据（如矿石ID）的自适应映射与坐标轴展示支持，并更新了执行配置以处理0401数据（包含140kV至180kV电压组）。同时增加了专门针对0401矿石数据的序号拼接逻辑，自动将含有 `1_20` 和 `21_38` 前缀的提取文件（后缀 0~19 和 0~17）整合为连续的 0-37 号整体矿石序列。
 

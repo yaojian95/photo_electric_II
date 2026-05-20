@@ -2,7 +2,7 @@ import sys
 import os
 import numpy as np
 import cv2
-import pandas as pd
+# import pandas as pd (moved to functions that use it)
 from pathlib import Path
 import pickle
 
@@ -744,9 +744,6 @@ def calculate_effective_z(cu: float, fe: float, s: float, z_base: float = 11.0, 
     Z_FE = 26.0
     Z_S = 16.0
     
-    # 计算有效原子序数
-    # Formula: Z_eff = (w1*Z1^exp + w2*Z2^exp + ... + w_n*Zn^exp)^(1/exp)
-    
     # 情况1: 仅 Cu + Fe (假设剩余部分为基体)
     z_eff_cufe = (w_cu * (Z_CU**exponent) + w_fe * (Z_FE**exponent) + (1.0 - w_cu - w_fe) * (z_base**exponent)) ** (1.0/exponent)
     
@@ -754,3 +751,92 @@ def calculate_effective_z(cu: float, fe: float, s: float, z_base: float = 11.0, 
     z_eff_cufes = (w_cu * (Z_CU**exponent) + w_fe * (Z_FE**exponent) + w_s * (Z_S**exponent) + w_gangue * (z_base**exponent)) ** (1.0/exponent)
     
     return float(z_eff_cufe), float(z_eff_cufes)
+
+def plot_ul_cdf(pixels_low, save_path, I0=204.0, title="ul CDF", bins=100):
+    """
+    计算输入矿石的低能像素点的灰度值对应的 ul (低能对数衰减) 值，绘制并保存其累积分布图 (CDF)。
+    
+    参数 (Parameters):
+    ----------
+    pixels_low : np.ndarray or list or flat array-like
+        低能像素灰度值。表示检测到矿石区域的低能像素集合。
+        类型：一维或扁平化的 np.ndarray 或可迭代对象。
+    save_path : str or Path
+        直方图图片的保存路径，包含文件名及后缀（例如 'results/ore_ul_cdf.png'）。
+        类型：str 或 pathlib.Path 对象。
+    I0 : float, default 204.0
+        X 射线未穿过矿石时的入射光束参考强度值。
+        类型：float。
+    title : str, default "ul CDF"
+        直方图的标题。
+        类型：str。
+    bins : int, default 100
+        本参数在此版本中保留以兼容接口，实际绘图使用连续 CDF 曲线。
+        类型：int。
+        
+    返回 (Returns):
+    -------
+    np.ndarray
+        过滤出的有效物理 ul 衰减数据（一维数组）。若无有效像素或计算失败，返回空数组。
+        类型：np.ndarray。
+    """
+    import matplotlib.pyplot as plt
+    from pathlib import Path
+    
+    l_v = np.asarray(pixels_low, dtype=np.float32)
+    
+    # 动态判断位深 (8位 vs 16位)，以确保过滤的鲁棒性
+    max_val = 65535.0 if np.max(l_v) > 255 else 255.0
+    
+    # 过滤有效像素值 (在 0 和 max_val 之间)
+    l_valid = l_v[(l_v >= 0) & (l_v < max_val)]
+    
+    if len(l_valid) == 0:
+        print(f"Warning: No valid pixels found in range [0, {max_val}).")
+        return np.array([], dtype=np.float32)
+        
+    # 计算 logarithmic 衰减值 ul
+    ul_vals = np.log(I0 / np.maximum(l_valid, 1e-6))
+    
+    # 过滤物理上合理的衰减区间 (在 0 到 10 之间)
+    physical_ul = ul_vals[(ul_vals > 0) & (ul_vals < 10)]
+    
+    if len(physical_ul) == 0:
+        print(f"Warning: No physical ul values in (0, 10) range.")
+        return np.array([], dtype=np.float32)
+        
+    # 计算 CDF 曲线所需排序数据
+    sorted_ul = np.sort(physical_ul)
+    cdf_vals = np.arange(1, len(sorted_ul) + 1) / len(sorted_ul)
+    
+    # 绘图与保存
+    plt.figure(figsize=(8, 6))
+    plt.plot(sorted_ul, cdf_vals, color='lightcoral', linewidth=2.5, label="CDF Curve")
+    plt.fill_between(sorted_ul, cdf_vals, color='lightcoral', alpha=0.15)
+    
+    mean_val = np.mean(physical_ul)
+    median_val = np.median(physical_ul)
+    
+    plt.axvline(mean_val, color='blue', linestyle='--', linewidth=1.5, label=f"Mean: {mean_val:.4f}")
+    plt.axvline(median_val, color='green', linestyle=':', linewidth=1.5, label=f"Median: {median_val:.4f}")
+    
+    # 绘制 50% (中位数) 水平参考辅助线
+    plt.axhline(0.5, color='gray', linestyle='-.', alpha=0.5, linewidth=1)
+    
+    plt.title(title, fontsize=14, fontweight='bold', pad=15)
+    plt.xlabel(r"Low Energy Attenuation $u_L$", fontsize=12)
+    plt.ylabel("Cumulative Probability (CDF)", fontsize=12)
+    plt.ylim(0, 1.05)
+    plt.grid(True, alpha=0.3, linestyle='--')
+    plt.legend(fontsize=10, loc='lower right')
+    
+    # 确保保存的父文件夹存在
+    save_path = Path(save_path)
+    save_path.parent.mkdir(parents=True, exist_ok=True)
+    
+    plt.savefig(save_path, dpi=150, bbox_inches='tight')
+    plt.close()
+    
+    return physical_ul
+
+

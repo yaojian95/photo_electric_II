@@ -278,8 +278,8 @@ def plot_energy_summary(json_path='attenuation_slopes.json', selected_elements=N
 
 if __name__ == "__main__":
     # 1. 仅绘制 Fe, Al, Cu 的衰减曲线对比图
-    # target_list = ['Fe', 'Al', 'Cu']
-    # plot_mu_rho_vs_energy(target_list)
+    target_list = ['Fe', 'Al', 'Cu']
+    plot_mu_rho_vs_energy(target_list)
 
     # # 2. 演示功能：根据 mu 反推能量
     # # 假设我们在不同电压下测量到了 Fe 的线衰减系数 mu (cm^-1)

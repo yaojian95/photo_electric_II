@@ -8,6 +8,17 @@ This workspace focus on validating XRT image quality and extracting standard sam
 
 ## Local Scripts
 
+### `contour_app/` (Desktop Application)
+- **Purpose**: A standalone GUI tool for interactive contour extraction and parameter tuning.
+- **Components**:
+    - `app.py`: The main GUI entry point built with `CustomTkinter`. Handles the interface layout, event loops, and interactive widgets (sliders, switches).
+    - `processor.py`: The bridge between the GUI and `utils_II.py`. Wraps high-level image processing tasks like loading, splitting, and preview generation to ensure the GUI remains responsive.
+- **Workflow**:
+    1. User selects an image.
+    2. The app splits the dual-energy image and displays the low-energy channel.
+    3. User adjusts sliders (Threshold, ROI, Scaling) to see real-time updates of detected contours.
+    4. User saves the final contoured image as a PNG.
+
 ### `equivalent_thickness_calc.py`
 - **Purpose**: A standalone utility script to calculate the equivalent ore thickness corresponding to standard metal step wedges (Cu, Fe, Al) under dual-energy XRT.
 - **Functions**:
@@ -49,13 +60,45 @@ This workspace focus on validating XRT image quality and extracting standard sam
     - `check_step_gradient`: Analyzes row-wise mean gradients using Pearson Correlation and dynamic thresholds.
     - `warp_straighten`: Aligns tilted objects using perspective transforms.
     - `get_10_step_means`: Multi-axis core sampling (80% width, 60% height).
-    - `save_contour_data`: Organized saving of warped images and pixel data.
-    - `normalize_image`: 将校准后的图像灰度值从理论最大值(如50000)重新映射到目标位深(8位或16位)的指定比例(如80%)。
-        - 参数 `image`: 输入的原始高深度图像 (ndarray)；`current_max`: 当前最大值 (float, 默认50000.0)；`target_ratio`: 目标比例 (float, 默认0.8)；`target_bit_depth`: 目标位深 (int, 8或16)。
-        - 返回: 归一化后的图像 (ndarray, dtype=np.uint8 或 np.uint16)。
-    - `calculate_effective_z`: 根据矿石品位计算有效原子序数 (Z_eff)。
-        - 参数 `cu, fe, s`: 铜、铁、硫品位 (%) (float)；`z_base`: 脉石基体原子序数 (float, 默认11.0)；`exponent`: 指数因子 (float, 默认2.94)。
-        - 返回: (z_eff_cufe, z_eff_cufes) 元组。
+    - `save_contour_data`: Organized saving of warped images and p### `pick_ores.py`
+- **Purpose**: 用于矿石轮廓提取与多模型分类结果的可视化标注。为了保证脚本的完全独立性与极高的执行效率，本脚本已直接完整集成了原 `utils_II.py` 中的关键几何提取和畸变校正算法（如 `get_bricks`, `get_bricks_watershed` 等），**已完全剥离对外部模块 `utils_II.py` 的导入依赖**。支持接收摆放矿石的 dual-energy 或低能图像，提取出所有矿石轮廓。本模块在图像最显眼位置的背景框内，使用 OpenCV 绘制极高对比度的数字类别（**`1`**、**`2`**、**`3`**、**`4`**）代表第一至第四类，并在顶部附带 1-based 序号 `f"#{ore_id}"` 进行精确追踪。支持以下三种分类划分机制：
+    - **方法 1 (二分类配对方法)**：基于两模型预测的 0/1 类别（1代表精矿，0代表废矿），组合为四类标签（`11` -> 1，`10` -> 2，`01` -> 3，`00` -> 4）。
+    - **方法 2 (原子序数 $Z_{eff}$ 多档分类与加权决策方法)**：输入两个模型预测的 $Z_{eff}$ 浮点数值，首先将各自在图中的预测值分别归一化到 `[0, 1]` 区间，再等分为四档 (`T1` 至 `T4`)。当两模型分档不一致时，采用已归一化值的加权和 $Z_{norm, weighted} = 0.6 \cdot Z_{norm, 1} + 0.4 \cdot Z_{norm, 2}$ 直接判定所属档位，输出对应的数字类别标签。
+    - **方法 3 (基于静态矿石编号的方法)**：直接根据用户给出的前 25%、25%-50%、50%-75% 和 倒数 25% 的 1-based 静态矿石编号集合将图中的矿石轮廓分类到四类档位（分别对应第一至第四类并绘制 `1` 到 `4`），内置动态兜底 Fallback。
+- **Functions**:
+    - `label_ores`: 主入口函数，负责调用集成的几何分割算法提取轮廓并进行半透明与彩色描边、高对比度文本框绘制。
+        - **参数解释**：
+            - `image_path` (str): 输入摆放矿石的图片文件路径 (可以是 8 位或 16 位 stacked dual-energy 图像)。
+            - `model1_results` (list 或 np.ndarray): 
+                - 方法 1 下：模型 1 给出每个提取出的矿石轮廓的二分类预测结果 (精矿为 1，废矿为 0)。
+                - 方法 2 下：模型 1 预测每个矿石的有效原子序数 $Z_{eff}$ 浮点数值。
+                - 方法 3 下：不使用模型数据，可传入空列表 `[]`。
+            - `model2_results` (list 或 np.ndarray): 
+                - 方法 1 下：模型 2 给出每个提取出的矿石轮廓的二分类预测结果 (精矿为 1，废矿为 0)。
+                - 方法 2 下：模型 2 预测每个矿石的有效原子序数 $Z_{eff}$ 浮点数值。
+                - 方法 3 下：不使用模型数据，可传入空列表 `[]`。
+            - `output_path` (str, 可选): 标注后的图像保存路径。如果为 None，则不进行磁盘写入，仅返回处理后的图像。
+            - `roi` (list, 默认 `[200, -1, 600, 800]`): 感兴趣的区域 `[y1, y2, x1, x2]`。若 y2 或 x2 为 -1 代表提取到图像边缘。
+            - `th_val` (int, 默认 `175`): 图像二值化时的灰度阈值，用于检测矿石轮廓。
+            - `use_watershed` (bool, 默认 `False`): 是否启用基于分水岭算法的 `get_bricks_watershed` 提取轮廓。如果为 False，则使用传统的 `get_bricks`。
+            - `fx` (float, 默认 `0.99`): 高能图像几何校正的横向比例参数。
+            - `fy` (float, 默认 `1.0`): 高能图像几何校正的纵向比例参数。
+            - `sort_direction` (str, 默认 `'y'`): 轮廓排序方向，'y' 代表列优先 (从上到下，从左到右)，'x' 代表行优先。
+            - `max_colwidth` (int, 默认 `35`): 排序时的横向或纵向聚类容差距离。
+            - `vscale` (float, 默认 `1.0`): 纵向缩放系数。
+            - `alpha` (float, 默认 `0.4`): 半透明填充遮罩 (mask overlay) 的不透明度，范围在 0.0 到 1.0 之间。
+            - `method` (int, 默认 `3`): 选择的分类标记方法：`1` 代表二分类配对；`2` 代表原子序数归一化多档及加权判定；`3` 代表基于 1-based 静态矿石 ID 列表的分类标记方法。
+            - `reverse_sort` (bool, 默认 `False`): 是否对提取的每一档轮廓进行逆向排列。对于 Yinshan (银山数据行排列，X 轴从右到左) 必须设为 `True`，对于其他数据集默认为 `False`。
+        - **返回值**：
+            - `(labeled_img, cnt_filtered)` 元组。其中 `labeled_img` 为同样大小的 BGR 彩色标注图像，`cnt_filtered` 为排序后的过滤轮廓列表。
+- **Workflow**:
+    1. 调用 `utils_II.get_bricks` 或 `utils_II.get_bricks_watershed` 提取图像中的矿石轮廓并排序。随后对底图进行水平翻转（`cv2.flip(labeled_img, 1)`），并同步镜像翻转所有已提取轮廓的 X 坐标，以响应左右反转渲染要求并确保绘图与文本的对齐和文字正向显示。
+    2. 对分类预测结果（二分类或 $Z_{eff}$ 数值）进行对齐与长度容错处理。若预测列表长度少于提取的轮廓，在方法 1 中以二分类 `0` 进行填充，在方法 2 中以预测序列的均值 (如空则为 `12.0`) 进行均值填充，以保证多图像大批量处理时的稳定性。
+    3. 根据两模型组合结果或 Zeff 分档映射为 Class 1 (绿色), Class 2 (橙色), Class 3 (蓝色), 或 Class 4 (红色) 4 种级别。
+    4. 采用融合算法在原图上叠加透明度为 `alpha` 的精美色块，用不透明边界包围矿石。在矿石几何中心放置高对比度黑底背景的白色类别文本（显示为等级数字 `1`、`2`、`3`、`4`）；同时在各矿石外接矩形（Bounding Box）的正上方空隙外 `(y - id_h - 8)` 绘制配有微型暗底背景和亮白文本的 1-based 序号 `f"#{ore_id}"`（若最顶部越界则置于矿石内部上沿），完全杜绝重叠与遮挡，清晰美观。
+    5. 使用 `cv2.imencode` 写入保存，防止在 Windows 系统中因非 ASCII 或中文路径出错。
+用户只需运行 `python pick_ores.py` 即可在 `results/` 目录下得到渲染后的图片。
+
 
 ### `extract_sample_values.py`
 - **Purpose**: Batch analysis of standard samples using relative paths.
@@ -139,6 +182,20 @@ This workspace focus on validating XRT image quality and extracting standard sam
     2. Uses defined densities: Cu=8.96, Fe=7.87, Al=2.70 g/cm³.
     3. Analyzes the consistency of $\mu_m$ across different thickness steps to verify beam hardening effects.
     4. Generates comparison plots (`mu_m_analysis.png`) across voltages.
+
+### `analyze_energy_hardening.py`
+- **Purpose**: Implements a thickness-dependent energy back-calculation method to find the incident effective energy.
+- **Functions**:
+    - `get_energy_from_mu_rho(element_symbol, mu_rho_list, data_dir)`: 
+        - **核心逻辑**: 根据质量衰减系数 $\mu_m$ ($cm^2/g$) 在对数空间反向推算光子能量 ($keV$)。
+        - 参数 `element_symbol`: 元素符号；`mu_rho_list`: $\mu_m$ 列表。
+    - `analyze_hardening()`: 
+        - 对每个材质和电压，计算各阶梯的有效能量并绘制 $E$ vs $Thickness$ 曲线。
+        - 执行线性拟合并外推到 $t=0$，从而获得不受硬化影响的入射光束等效能量 $E_0$。
+- **Workflow**:
+    1. 提取阶梯像素值并计算逐点 $\mu_m$。
+    2. 利用 NIST 逆插值将 $\mu_m$ 转换为能量 $E$。
+    3. 拟合硬化趋势线并保存 `hardening_summary.json` 与对比图。
     
 ### `predict_disk_Z.py`
 - **Purpose**: Fits Model 2 (multivariate polynomial) and generates heatmaps and histograms for predicted atomic numbers (Z) of disks.
@@ -195,6 +252,15 @@ This workspace focus on validating XRT image quality and extracting standard sam
     3. **Group-Specific Calibration**: Applies different axis limits for step samples (low gray value, high attenuation) and disk samples (high gray value, low attenuation) to ensure visibility.
     3. **Total Visualization**: Disables subsampling to plot every valid pixel in H-L space.
     4. **Grid Metrics**: Computes means, standard deviations, log-attenuation, and adaptive linear ranges.
+
+### `fit_hl_curve_0429.py`
+- **Purpose**: 针对 2026-04-29 实验数据集的综合衰减曲线分析脚本，整合了 0.6mm 与 1.2mm 滤片的对比分析，并支持与 2026-04-01 矿石数据的跨数据集对比。
+- **Configuration Parameters**:
+    - `analysis_target`: 控制分析范围。可选值：`"step"` (仅处理阶梯样块), `"ore"` (仅处理矿石样块), `"all"` (处理全部)。
+- **Key Features**:
+    - **Global Scaling**: 自动扫描阶梯样块数据以确定全局统一的坐标轴范围，确保跨电压、跨材质、跨滤片的图表具有视觉可比性。
+    - **Ore ul/uh Analysis**: 为每个矿石 ID（如 01, 18, PbZn 等）生成独立的电压对比图，分析比值 $u_L/u_H = \ln(I_0/L)/\ln(I_0/H)$ 的随电压变化趋势，并在 0.6mm 图中叠加 0401 数据作为参考。
+    - **Result Export**: 将各材质在不同电压下的衰减斜率 $\mu_L, \mu_H$ 导出为 `attenuation_slopes.json` 供其他模型调用。
 
 ### `read_raw.py`
 - **Purpose**: Batch convert 16-bit `.raw` XRT images into `.png` format.

@@ -91,9 +91,9 @@ def process_masks_and_extract():
             if category == 'ore':
                 # 解析矿石编号逻辑：
                 # 1. 优先匹配 Ore-A-B- 模式 (A, B 可以是数字或字母如 PbZn)
-                # 这种模式下，0.6mm 取 A，1.2mm 取 B
+                # 注意：只有当 B 部分不包含 'mm' 时才认为是双编号情况
                 match = re.search(r'Ore-([^-]+)-([^-]+)-', base_name, re.IGNORECASE)
-                if match:
+                if match and 'mm' not in match.group(2).lower():
                     id1, id2 = match.groups()
                     actual_id = id1 if '0.6mm' in tif_name.lower() else id2
                     # 将文件名中的 Ore-A-B- 替换为 Ore-实际ID-

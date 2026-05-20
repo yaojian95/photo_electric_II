@@ -20,9 +20,11 @@ def main():
     roi = [0, 1200, 200, 1336]; all_type = None; align_direct = 'y'
 
     data_dir = r'E:\multi_source_info\data_dir\20260401'; 
-    roi = [0, 1200, 100, 1486]; all_type = 'ore'; align_direct = 'x'
+    roi = [0, 1400, 100, 1586]; all_type = 'ore'; align_direct = 'x'
     th_val = 190; fy = 0.9909 #fy单独控制高能图像的校准比例
     
+    data_dir = r'E:\multi_source_info\data_dir\20260512_180kV1ma_all_dual\dual'
+    roi = [0, -1, 0, -1]; all_type = None; align_direct = 'y'; th_val = 200
     # Set to a specific string (e.g., 'ore', 'disk', 'block', 'step_sample') to force all contours 
     # to be classified as that type. Set to None for automatic classification based on geometry.
     
@@ -49,8 +51,11 @@ def main():
         os.makedirs(output_dir)
 
     # Adaptive file discovery: find all .tif files with 'kV' in the name
+    # tif_files = [f for f in os.listdir(data_dir) 
+    #              if f.lower().endswith('.tif') and 'kv' in f.lower()]
+
     tif_files = [f for f in os.listdir(data_dir) 
-                 if f.lower().endswith('.tif') and 'kv' in f.lower()]
+                 if f.lower().endswith('.png') and 'dual' in f.lower()]
     
     if not tif_files:
         print(f"No matching kV .tif files found in {data_dir}")
