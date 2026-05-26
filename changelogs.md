@@ -1,3 +1,51 @@
+## 2026-05-26
+- **Feature**: 在 `get_apd_acd.py` 中新增并导出了 `_plot_apd_acd_histograms` 模块化直方图生成函数，用于为指定电压和滤片下的标样材料（Cu, Fe, Al）绘制其全部有效像素在 $apd$ 和 $acd$ 特征上的像素级原始分布直方图，生成专门独立的可视化图表并自动保存至 `{f_type}/{voltage}_apd_acd_histogram.png`，完美响应了“直观展现全部像素分布且不污染原图”的物理验证设计要求。
+- **Refactor**: 撤销并还原了 `_plot_detailed_profiling`（2x2 深度物理特征剖析图）中强加的像素级散点点云背景，使其回归到完全洁净、不受噪声云污染的宏观均值趋势及标准差误差棒曲线图（原图完好无损、保持原始设计）。
+- **Optimization**: 在 `get_apd_acd.py` 的特征数据持久化导出流程中，引入了 `_make_json_safe` 递归安全序列化处理器，在导出 JSON 总结文件前递归自动剥离 `*_raw` 像素数组，在完美保留图表绘制所需高精度原始像素级数组的同时，杜绝了 JSON 导出报错并极大压缩了 JSON 文件体积。
+- **Configuration**: 配置并注册了官方 Model Context Protocol (MCP) PDF 阅读服务器 `@modelcontextprotocol/server-pdf`。创建了 IDE 级的 `mcp_config.json` 配置文件，使用 `npx` 自动执行，为 AI 助手赋予原生的高性能 PDF 交互式文档阅读与文本提取能力。
+- **Feature**: 在 `get_apd_acd.py` 中实现了完整的阶梯样 APD 和 ACD 特征计算与可视化分析管线。通过 `calculate_apd` 与 `calculate_acd` 进行像素级物理特征提取，并计算其均值 and 标准差，量化物理厚度及材料依赖。
+- **Feature**: 实现了各电压和滤片配置下的 2x2 物理剖析图渲染。子图包含 APD vs 厚度、ACD vs 厚度、APD vs ACD 特征空间轨迹、以及 $Z_{eff}$ vs 厚度，直观展示了双能系统下的材料物理属性与能谱硬化漂移。
+- **Feature**: 实现了多电压下的材料 Bulk 物理系数随电压变化的汇总大图渲染。折线包含 $a_p$、$a_c$、$Z_{eff}$ 以及 $a_p/a_c$ 比值随管电压的变化趋势，清晰展示了能谱硬度对物理衰减系数的调控规律。
+- **Feature**: 实现了 step 特征提取结果 of JSON 结构化汇总导出，将计算得到的所有特征（平均值与标准差）持久化写入至 `results/thickness_decoupling/apd_acd_summary.json`，供下游材料原子序数解耦与厚度拟合模型使用。
+- **Refactor**: 重构并拆分了原巨型主函数 `run_step_apd_acd_analysis` 为多个单一职责的模块化子函数：`_load_and_process_step_pixels`（像素读取与特征计算）、`_plot_detailed_profiling`（电压下2x2剖析图渲染）和 `_plot_coefficient_dependence`（多电压相关趋势图生成），极大提升了代码的可读性、内聚度与可维护性。
+- **Refactor**: 为 `get_apd_acd.py` 中的所有核心物理函数及新增子函数编写了详尽的中英文多维度参数类型、含义及用法注释，严格遵守工作区参数透明化规则。
+
+## 2026-05-25
+- **Feature**: 优化了 `fit_hl_curve.py` 和 `fit_hl_curve_0429.py` 综合绘图函数中矿石样品（Ore）的异常值剔除阈值。将低能与高能通道的灰度值下界由静态的 `256` 变更为动态阈值（16位下剔除 `< 2560`，8位下剔除 `< 10`，对应8位下的比例 10），并在大标题中同步标注对应的剔除阈值，以更精确地规避大衰减及盲元像素点，提高拟合的稳定性。
+- **Fix**: 优化了 `utils_II.py` 中的 `plot_ore_grayscale_distribution` 直方图绘制函数。将图例（legend）中指示死像素与低灰度值的静态阈值 `< 256` 重构为自适应逻辑：在 16 位图像下动态检测 `< 2560`（对应 8 位下的 10 倍增），在 8 位图像下检测 `< 10`。这与矿石综合分析图中的剔除边界保持了严格 of 物理含义一致性。
+- **Fix**: 在 `fit_hl_curve_0429.py` 内部单块矿石加载流程（读取 0429 及 0401 的单块矿石 pkl 时）中，引入了相同的 `< 2560` (16位) / `< 10` (8位) 灰度阈值剔除逻辑，彻底消除了由于盲元或未合理衰减导致的 Log 对数极值，同时更新了 `ore_{oid}_comprehensive_analysis.png` 的图表大标题，使其动态显示排除阈值注记（如 `Excluding Grayscale < 2560`），确保单矿石全流程与多矿石混合图的物理机制高度一致。
+- **Refactor**: 秉持 DRY 软件开发原则，在 `utils_II.py` 中新增并导出了 `get_ore_lower_threshold(is_ore, v_max)` 统一集中管理阈值计算逻辑。随后将 `fit_hl_curve.py` 和 `fit_hl_curve_0429.py` 中原本分布在各处的共 12 处硬编码 threshold 判定统一替换为对该中央函数的调用。这不仅显著净化了脚本主体逻辑，也避免了未来阈值变更时多点修改、极易出现人为疏漏的隐患。
+- **Fix**: 在 `fit_hl_curve_0429.py` 中将 `ore_pixels_storage` 保存的像素源调整为反序列化后的**完全原始未过滤像素** `(l_v, h_v)`，从而确保 `plot_ore_grayscale_distribution` 函数绘制矿石灰度分布直方图时能够展示全部像素点（而非清洗后的部分），使得直方图中的 `=0` 和 `<2560`（16位）/ `<10`（8位）统计比例能够真实、不偏不倚地揭示图像采集底噪以及死盲元分布的全貌。
+- **Feature**: 增强了 `utils_II.get_ore_lower_threshold` 中央配置器，新增支持了自定义最低允许透过率比例的参数 `ratio`（默认 5% 保持完全向前兼容）。为应对超高品位、大部分像素全吸收变黑的极端高致密矿石样品，提供了通过提高 `ratio`（如至 10% 或 15%）将信噪比极低、易受探测器底噪散射扭曲的“超黑噪声点”彻底过滤的标准化手段。
+
+## 2026-05-22
+- **Feature**: 在 `fit_hl_curve.py` 和 `fit_hl_curve_0429.py` 的 `perform_comprehensive_analysis` 综合绘图函数中，对矿石样品（Ore）引入了灰度下限过滤逻辑。现在，为了消除死像素、盲元以及由于过厚样品造成的异常极高衰减像素干扰，程序会自动将低能和高能通道中灰度值小于 `256` 的所有无效像素剔除在外，并在最终大图大标题中添加注记 `(Excluding Grayscale < 256)`，使得拟合回归曲线和统计均值点更为精确合理。
+- **Feature**: 为 `plot_ore_grayscale_distribution` 函数集成了低灰度与死像素统计指示器。现在在每个电压子图的 legend 中，会自动计算并注明低能/高能通道中 `=0` 的像素占比以及 `<10` 的像素占比，为评估 XRT 探测器的底层物理底噪与可能存在的盲元盲点提供了强有力的定量化数据支撑。
+- **Feature**: 将 `plot_ore_grayscale_distribution` 重构为支持“自适应动态判定灰度值上下限”的机制。若未显示传入 `x_min`/`x_max`，程序会自动合并某矿石在所有扫描电压下的高、低能有效像素，利用 0.5% 与 99.5% 分位数计算出自适应的直方图横坐标上下界（并在此基础上额外拓宽 2% 的视觉边距）。这不仅摆脱了原先 `12750` 的硬编码限制，也完美解决了 8位/16位 动态范围下图像横坐标轴的自适应渲染。
+- **Feature**: 在 `utils_II.py` 中编写并集成了 `plot_ore_grayscale_distribution` 函数，用于将单块矿石在所有电压配置下的高、低能灰度值直方图分布整合成一张大图进行可视化输出。同步在 `fit_hl_curve_0429.py` 中引入了 `ore_pixels_storage` 字典，自动收集 0429（0.6mm 与 1.2mm）及 0401 两个数据集下各电压的有效像素分布并调用此函数生成各矿石的完整灰度直方图大图，存储于对应 `histograms/{ft}/` 路径下，极大方便了对矿石细节衰减与死像素分布的直接观测。
+- **Fix**: 修正了 `fit_hl_curve.py` (以及 `fit_hl_curve_0429.py` 内部) 中衰减对数均值的计算顺序。根据詹森不等式 (Jensen's Inequality) 以及物理上的独立射线穿透原理，现在强制使用“先对每个像素进行 `log(I0/L)` 计算物理衰减，然后再对结果求均值”的逻辑，彻底取代了原本“先求灰度平均再取对数”的做法。此修改统一了综合分析图 (Row 2 曲线) 中的数值与 CDF 图中的标注平均值，显著提升了对高度异质性样本（如矿石）分析的准确性。
+
+
+
+
+
+## 2026-05-20
+- **Fix**: 修复了 `fit_hl_curve_0429.py` 中 `analysis_target = "step"` 时仍会错误执行矿石分析逻辑的问题。现在代码会通过早期退出 (`sys.exit()`) 严格遵守目标筛选配置。
+- **Feature**: 重构了 `fit_hl_curve_0429.py` 中关于阶梯样分析的逻辑。摒弃了原来的单一拟合选项 (`mu_calc_method`)，改为将阶梯的厚度从最薄到最厚（索引 0-9）进行完整循环。
+- **Feature**: 优化了阶梯 `attenuation_analysis` 图的坐标展示。统一强制 1.2mm 的结果子图与 0.6mm 的全局横坐标（电压）保持完全一致（130kV-330kV），从而避免了坐标轴范围不一引起的视觉差异。同时，所有对应的结果图与 `.json` 文件都会存入同一文件夹内，并在文件名中体现不同的阶梯厚度（如 `slope_summary_0.6mm_with_0331_2mm_CuFe_12mm_Al.png` 和 `attenuation_slopes_2mm_CuFe_12mm_Al.json`），便于集中查阅与对比。
+- **Feature**: 更新了 `fit_hl_curve_0429.py` 的输出逻辑，现在保存的综合汇总图和 JSON 衰减系数文件会自动带上 `_slope` 或 `_3rd_step` 的后缀以防止互相覆盖。同步更新了 `get_mu_from_nist_new.py` 以默认读取 `_slope` 文件。
+- **Feature**: 在 `fit_hl_curve_0429.py` 中增加了 `mu_calc_method` 选项，支持通过“拟合斜率” (`"slope"`) 或“第三个阶梯离散值” (`"3rd_step"`) 来计算真实的质量衰减系数 $\mu_m$ ($\mathrm{cm}^2/\mathrm{g}$)，并同步移除了理论曲线中冗余的密度计算。
+- **Fix**: 修复了 `fit_hl_curve_0429.py` 中 0401 矿石数据读取硬编码指向旧8位文件夹的Bug，现已正确适配至 `_16bit` 文件夹，解决了高能基准下计算越界的问题。
+- **Feature**: 实现了 0401 和 0429 矿石按电压层级自动生成 `2x3` 的综合衰减分析散点大图。
+- **Feature**: 移除了 `fit_hl_curve.py` 和 `fit_hl_curve_0429.py` 中强加的 `255` 坐标轴上限硬编码，使得16位原生极宽动态范围坐标能自动延展。
+- **Feature**: 实现了16位图像的端到端直接读取、处理与保存，避免了降采样到8位带来的精度损失：
+    - 更新了 `utils_II.py` 中的 `get_bricks` 和 `get_bricks_watershed`，使用 `cv2.IMREAD_ANYDEPTH` 直接读取并支持16位 (`uint16`) 深度图像。
+    - 针对16位图像自动进行了 `th_val` 参数自适应放大(如果输入是0-255，则自动乘以256)，保证轮廓提取阈值一致性。
+    - 修改了 `utils_II.py` 中的可视化逻辑，仅对最终可视化的 `contoured` 图像进行8位压缩与BGR彩色化，而所有的分析用像素(`pixels`)、裁剪图(`low`, `high`)等核心数据均维持16位高精度输出。
+    - 更新了 `extract_sample_values.py`, `extract_0429_RaySov.py` 以及 `extract_0429_RaySov_from_mask.py` 脚本，将最终的结果保存目录强制重定向到包含 `_16bit` 后缀的新文件夹，实现与原有8位数据解耦分离。
+    - 在 `extract_0429_RaySov_from_mask.py` 中移除了将 16位 `.user.tif` 或 `.orig.tif` 降采样为8位的逻辑，现在它们统一输出 16位 (target_bit_depth=16) 的原始图像进行处理。
+    - 更新了拟合分析脚本 `fit_hl_curve.py` 和 `fit_hl_curve_0429.py`，引入了动态的 `v_max` (自动适配255或65535)，使代码能够兼容分析读取出来的16位高动态范围 `pkl` 像素级数据。
+
 ## 2026-05-18
 - **New Feature**: 在 `label_ores` 中新增了水平镜像翻转底图与轮廓映射的特性，完美响应用户关于左右反转渲染结果的要求：
     - 使用 `cv2.flip(labeled_img, 1)` 对底图进行水平翻转。

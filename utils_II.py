@@ -436,7 +436,7 @@ def get_bricks(path = 'all_unnorm.png', roi = [200, -1, 600, 800], th_val = 175,
         vscale: Vertical scaling factor (e.g. 1/1.5 for 1.5x compression).
         vscale_interp: Interpolation method for vertical scaling (e.g. cv2.INTER_AREA).
     """
-    data_int8 = cv2.imread(path, cv2.IMREAD_GRAYSCALE)
+    data_int8 = cv2.imread(path, cv2.IMREAD_ANYDEPTH)
     if data_int8 is None:
         raise FileNotFoundError(f"Could not read image at {path}")
 
@@ -453,12 +453,20 @@ def get_bricks(path = 'all_unnorm.png', roi = [200, -1, 600, 800], th_val = 175,
 
     r_image = compute_R(low, high, I0_low = 195, I0_high = 196, 
                      input = 'images', method = 'a', const = [5, 20])
-    _, thresholded = cv2.threshold(low.copy(), th_val, 255, th_type)
+                     
+    eff_th_val = th_val * 256 if (low.dtype == np.uint16 and th_val <= 255) else th_val
+    _, thresholded = cv2.threshold(low.copy(), eff_th_val, 255, th_type)
+    if thresholded.dtype != np.uint8:
+        thresholded = thresholded.astype(np.uint8)
 
     # Find contours using cv2.RETR_TREE and cv2.CHAIN_APPROX_SIMPLE
     contours, hierarchy = cv2.findContours(thresholded, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+    
     # Preserve float R-image for visualization (don't normalize to 0-255)
-    contoured = cv2.cvtColor(low, cv2.COLOR_GRAY2BGR).copy()
+    if low.dtype == np.uint16:
+        contoured = cv2.cvtColor((low / 256).astype(np.uint8), cv2.COLOR_GRAY2BGR)
+    else:
+        contoured = cv2.cvtColor(low, cv2.COLOR_GRAY2BGR).copy()
     contoured_r = r_image.copy()
 
     cnt_filtered = []
@@ -520,7 +528,7 @@ def get_bricks_watershed(path = 'all_unnorm.png', roi = [200, -1, 600, 800], th_
         vscale: Vertical scaling factor.
         vscale_interp: Interpolation method.
     """
-    data_int8 = cv2.imread(path, cv2.IMREAD_GRAYSCALE)
+    data_int8 = cv2.imread(path, cv2.IMREAD_ANYDEPTH)
     if data_int8 is None:
         raise FileNotFoundError(f"Could not read image at {path}")
         
@@ -536,7 +544,10 @@ def get_bricks_watershed(path = 'all_unnorm.png', roi = [200, -1, 600, 800], th_
                      input = 'images', method = 'a', const = [5, 20])
     
     # 1. Initial Thresholding
-    _, thresholded = cv2.threshold(low.copy(), th_val, 255, th_type)
+    eff_th_val = th_val * 256 if (low.dtype == np.uint16 and th_val <= 255) else th_val
+    _, thresholded = cv2.threshold(low.copy(), eff_th_val, 255, th_type)
+    if thresholded.dtype != np.uint8:
+        thresholded = thresholded.astype(np.uint8)
     
     # 2. Morphological Opening to remove noise/tiny bridges
     kernel = np.ones((3,3), np.uint8)
@@ -563,7 +574,10 @@ def get_bricks_watershed(path = 'all_unnorm.png', roi = [200, -1, 600, 800], th_
     
     # 7. Watershed on 3-channel image (OpenCV watershed requirement)
     # Use 'low' as the source image
-    img_bgr = cv2.cvtColor(low, cv2.COLOR_GRAY2BGR)
+    if low.dtype == np.uint16:
+        img_bgr = cv2.cvtColor((low / 256).astype(np.uint8), cv2.COLOR_GRAY2BGR)
+    else:
+        img_bgr = cv2.cvtColor(low, cv2.COLOR_GRAY2BGR)
     markers = cv2.watershed(img_bgr, markers)
     
     # 8. Reconstruct contours from markers
@@ -612,7 +626,10 @@ def get_bricks_watershed(path = 'all_unnorm.png', roi = [200, -1, 600, 800], th_
     # Return to normal pipeline logic
     cnt_filtered = sort_contours(cnt_filtered, direction=sort_direction, tolerance=max_colwidth, reverse=reverse_sort)
     
-    contoured = cv2.cvtColor(low, cv2.COLOR_GRAY2BGR).copy()
+    if low.dtype == np.uint16:
+        contoured = cv2.cvtColor((low / 256).astype(np.uint8), cv2.COLOR_GRAY2BGR)
+    else:
+        contoured = cv2.cvtColor(low, cv2.COLOR_GRAY2BGR).copy()
     contoured_r = r_image.copy()
     pixels = []; r_pixels = []
     box_images = []
@@ -795,8 +812,8 @@ def plot_ul_cdf(pixels_low, save_path, I0=204.0, title="ul CDF", bins=100):
         print(f"Warning: No valid pixels found in range [0, {max_val}).")
         return np.array([], dtype=np.float32)
         
-    # 计算 logarithmic 衰减值 ul
-    ul_vals = np.log(I0 / np.maximum(l_valid, 1e-6))
+    # 计算 logarithmic 衰减值 ul (下限 1.0，反映探测器真实底噪)
+    ul_vals = np.log(I0 / np.maximum(l_valid, 1.0))
     
     # 过滤物理上合理的衰减区间 (在 0 到 10 之间)
     physical_ul = ul_vals[(ul_vals > 0) & (ul_vals < 10)]
@@ -838,5 +855,180 @@ def plot_ul_cdf(pixels_low, save_path, I0=204.0, title="ul CDF", bins=100):
     plt.close()
     
     return physical_ul
+
+
+def plot_ore_grayscale_distribution(oid, ft, voltage_data, save_path, x_min=None, x_max=None):
+    """
+    绘制每块矿石在不同电压下的高低能灰度值分布直方图，并将所有电压的子图整合进一张大图中保存。
+    灰度值上下限（x_min 和 x_max）支持动态判定：若未指定，则根据矿石在所有电压下的像素实际分布分位数（如 0.5% 至 99.5%）进行自适应计算，避免硬编码。
+    同时，本函数会在每个子图的 legend 中标注 `=0` 和 `<256` 的低灰度/死像素所占的百分比，以方便对探测器底噪和盲元进行质量评估。
+
+    参数类型、含义及用法：
+    --------------------------------------------------
+    oid : str
+        矿石的唯一标识符（如 '01', '02', '18' 等），类型为字符串，用于图表标题和文件名中标识矿石。
+    ft : str
+        滤片配置或数据集类型（如 '0.6mm', '1.2mm', '0401'），类型为字符串，用于区分不同的实验设置。
+    voltage_data : dict
+        一个字典对象。其键为电压字符串（如 '200kV', '220kV' 等），值为包含两个 numpy.ndarray 的元组 (l_valid, h_valid)，
+        代表该电压下低能和高能通道的有效像素灰度值。
+    save_path : str 或 pathlib.Path
+        类型为字符串或 Path 对象，指定合并后的大图在磁盘上的最终保存路径。
+    x_min : float 或 int, 可选 (默认值为 None)
+        类型为浮点数或整型，直方图横坐标的下限值。若为 None，则根据全波段有效像素分布的 0.5% 分位数自适应计算。
+    x_max : float 或 int, 可选 (默认值为 None)
+        类型为浮点数或整型，直方图横坐标的上限值。若为 None，则根据全波段有效像素分布的 99.5% 分位数自适应计算。
+
+    用法示例：
+    --------------------------------------------------
+    # 在数据收集完成后进行调用，自适应判定上下限：
+    voltage_data = {
+        '200kV': (pixels_low_200, pixels_high_200),
+        '220kV': (pixels_low_220, pixels_high_220)
+    }
+    save_path = "results/thickness_decoupling/H_L_fit/20260429_16bit/histograms/0.6mm/ore_18_grayscale_distribution.png"
+    plot_ore_grayscale_distribution('18', '0.6mm', voltage_data, save_path)
+    """
+    import matplotlib.pyplot as plt
+    from pathlib import Path
+    import numpy as np
+    import re
+
+    num_plots = len(voltage_data)
+    if num_plots == 0:
+        print(f"Warning: No voltage data provided for Ore {oid} ({ft}). Skip plotting.")
+        return
+
+    # 1. 动态确定 x 轴的自适应上下限 (合并该矿石所有电压下的高、低能像素来获取统计分布)
+    if x_min is None or x_max is None:
+        all_pixels_list = []
+        for voltage, (l_v, h_v) in voltage_data.items():
+            if len(l_v) > 0:
+                all_pixels_list.append(l_v)
+            if len(h_v) > 0:
+                all_pixels_list.append(h_v)
+        
+        if len(all_pixels_list) == 0:
+            print(f"Warning: No valid pixels found for Ore {oid} ({ft}). Skip plotting.")
+            return
+            
+        all_pixels = np.concatenate(all_pixels_list)
+        
+        if x_min is None:
+            x_min = np.percentile(all_pixels, 0.5)
+        if x_max is None:
+            x_max = np.percentile(all_pixels, 99.5)
+            
+        # 添加 2% 边距，防止边缘剪裁，且保证在单一灰度值时 span 依旧大于0
+        span = x_max - x_min
+        if span <= 0:
+            span = 1.0
+        x_min = max(0.0, x_min - 0.02 * span)
+        x_max = x_max + 0.02 * span
+
+    # 动态判断位深 (8位 vs 16位)
+    has_16bit = False
+    for voltage, (l_v, h_v) in voltage_data.items():
+        if len(l_v) > 0 and (l_v.dtype == np.uint16 or np.max(l_v) > 255):
+            has_16bit = True
+            break
+        if len(h_v) > 0 and (h_v.dtype == np.uint16 or np.max(h_v) > 255):
+            has_16bit = True
+            break
+    th_val = 2560 if has_16bit else 10
+
+    # 动态计算网格的行数和列数
+    cols = 3 if num_plots > 4 else 2
+    rows = (num_plots + cols - 1) // cols
+
+    fig, axes = plt.subplots(rows, cols, figsize=(6 * cols, 4.5 * rows), squeeze=False)
+    
+    # 按照电压数字大小进行自然排序以保证图表按顺序呈现
+    def get_voltage_num(v_str):
+        m = re.search(r'(\d+)', v_str)
+        return int(m.group(1)) if m else 0
+        
+    sorted_voltages = sorted(list(voltage_data.keys()), key=get_voltage_num)
+
+    for i, voltage in enumerate(sorted_voltages):
+        r, c = i // cols, i % cols
+        ax = axes[r, c]
+        
+        l_valid, h_valid = voltage_data[voltage]
+        
+        # 计算低能通道中 =0 和 <th_val 的像素比例
+        n_l = len(l_valid)
+        if n_l > 0:
+            pct_eq0_l = (np.sum(l_valid == 0) / n_l) * 100.0
+            pct_lt_l = (np.sum(l_valid < th_val) / n_l) * 100.0
+            label_l = f"Low Energy (=0:{pct_eq0_l:.2f}%, <{th_val}:{pct_lt_l:.2f}%)"
+        else:
+            label_l = "Low Energy (No data)"
+            
+        # 计算高能通道中 =0 和 <th_val 的像素比例
+        n_h = len(h_valid)
+        if n_h > 0:
+            pct_eq0_h = (np.sum(h_valid == 0) / n_h) * 100.0
+            pct_lt_h = (np.sum(h_valid < th_val) / n_h) * 100.0
+            label_h = f"High Energy (=0:{pct_eq0_h:.2f}%, <{th_val}:{pct_lt_h:.2f}%)"
+        else:
+            label_h = "High Energy (No data)"
+        
+        # 绘制有效像素在自适应 [x_min, x_max] 范围内的直方图
+        ax.hist(l_valid, bins=100, range=(x_min, x_max), alpha=0.5, label=label_l, color='blue', density=True)
+        ax.hist(h_valid, bins=100, range=(x_min, x_max), alpha=0.5, label=label_h, color='orange', density=True)
+        
+        ax.set_title(f"Voltage: {voltage}", fontsize=12, fontweight='bold')
+        ax.set_xlabel("Grayscale Value", fontsize=10)
+        ax.set_ylabel("Density", fontsize=10)
+        ax.set_xlim(x_min, x_max)
+        ax.legend(fontsize=8, loc='upper right')
+        ax.grid(True, alpha=0.3, linestyle='--')
+
+    # 隐藏多余没用到的子图
+    for i in range(num_plots, rows * cols):
+        r, c = i // cols, i % cols
+        fig.delaxes(axes[r, c])
+
+    fig.suptitle(f"Ore {oid} ({ft}) - Grayscale Value Distribution", fontsize=16, fontweight='bold', y=0.98)
+    plt.tight_layout()
+
+    # 确保保存的父文件夹存在
+    save_path = Path(save_path)
+    save_path.parent.mkdir(parents=True, exist_ok=True)
+
+    plt.savefig(save_path, dpi=150, bbox_inches='tight')
+    plt.close()
+    print(f"Successfully saved grayscale distribution for Ore {oid} ({ft}) to {save_path} (Range: [{x_min:.1f}, {x_max:.1f}])")
+
+
+def get_ore_lower_threshold(is_ore, v_max, ratio=0.05):
+    """
+    获取矿石灰度值过滤的动态下限阈值，实现统一的单点配置，避免在多处代码中重复编写导致出错。
+    
+    参数类型、含义及用法：
+    --------------------------------------------------
+    is_ore : bool
+        是否为矿石样品。若是，则应用针对矿石的死像素与高衰减过滤机制。
+    v_max : int 或 float
+        当前图像的像素最大可能值（一般为 255 代表 8位，或 65535 代表 16位）。
+    ratio : float, 默认 0.05
+        允许的最低透过率比例（相对于 v_max）。低于该比例的像素代表吸收极强，
+        极易受底噪和散射干扰，物理上不具可信度，应予剔除。
+        
+    返回：
+    --------------------------------------------------
+    lower_th : int
+        过滤下限值。
+    """
+    if is_ore:
+        # 为了向后兼容默认的 5% 阈值（16位下为 2560，8位下为 10）
+        if ratio == 0.05:
+            return 2560 if v_max > 255 else 10
+        # 否则按比例动态计算，如 ratio=0.10 时，16位下为 65535*0.10=6553，8位下为 255*0.10=25
+        return int(v_max * ratio)
+    return 0
+
+
 
 

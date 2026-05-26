@@ -11,7 +11,7 @@ def process_masks_and_extract():
     
     # 结果保存路径：仿照 extract_sample_values.py 存放在当前工程的 results 目录下
     folder_name = os.path.basename(base_dir.rstrip('\\'))
-    output_dir = os.path.join('results', folder_name)
+    output_dir = os.path.join('results', folder_name + '_16bit')
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
         
@@ -63,13 +63,13 @@ def process_masks_and_extract():
                 
             # 依据后缀判断是否需要归一化
             if 'orig' in tif_name.lower():
-                # 映射到 255 的 80% (约 204)
-                img = normalize_image(img, current_max=50000.0, target_ratio=0.8, target_bit_depth=8)
-                norm_status = "Normalized (8bit 80%)"
+                # 映射到 65535 的 80%
+                img = normalize_image(img, current_max=50000.0, target_ratio=0.8, target_bit_depth=16)
+                norm_status = "Normalized (16bit 80%)"
             elif 'user' in tif_name.lower():
-                # 已经归一化到 65536*0.8 (16位)，现在降为 8 位
-                img = normalize_image(img, current_max=65535.0, target_ratio=1.0, target_bit_depth=8)
-                norm_status = "Normalized (8bit from 16bit-user)"
+                # 已经归一化到 65535*0.8 (16位)，保持16位不变
+                img = normalize_image(img, current_max=65535.0, target_ratio=1.0, target_bit_depth=16)
+                norm_status = "Normalized (16bit from 16bit-user)"
             else:
                 norm_status = "Unknown (Raw)"
                 

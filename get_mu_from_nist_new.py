@@ -196,9 +196,9 @@ def get_energy_from_mu(element_symbol, mu_list, data_dir='nist_data'):
     res_log_e = inv_interp(np.log10(target_mu_rho))
     return 10**res_log_e
 
-def plot_energy_summary(json_path='attenuation_slopes.json', selected_elements=None):
+def plot_energy_summary(json_path='attenuation_slopes_slope.json', selected_elements=None):
     """
-    读取 attenuation_slopes.json，推算并绘制不同材质在不同管电压下的平均能量对比图。
+    读取 attenuation_slopes_slope.json 或 _3rd_step.json，推算并绘制不同材质在不同管电压下的平均能量对比图。
     
     参数:
         json_path: 数据路径

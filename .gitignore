@@ -4,3 +4,4 @@
 *.csv
 *.pdf
 /contour_app
+*.json

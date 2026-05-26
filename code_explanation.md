@@ -42,6 +42,60 @@ This workspace focus on validating XRT image quality and extracting standard sam
         - **核心功能**: 根据输入的线衰减系数 $\mu$ (cm^-1) 列表，反向推算出对应的平均 X 射线能量 (keV)。
         - 参数 `element_symbol`: 物质种类 ('Fe', 'Al', 'Cu')；`mu_list`: 线衰减系数列表。
 
+### `get_apd_acd.py`
+- **Purpose**: 双能 X 射线光电效应 (APD) 与康普顿散射 (ACD) 物理特征的像素级计算工具，并提供标准阶梯样品的特征演化分析与可视化管线。
+- **Functions**:
+    - `calculate_apd(low, high, I0_low=204.293, I0_high=204.199)`: 
+        - 计算光电效应乘厚度特征 $apd = a_p \cdot d$。
+        - 参数 `low`/`high`: 低能与高能通道灰度像素数组；`I0_low`/`I0_high`: 低能与高能通道的入射背景灰度参考值。
+    - `calculate_acd(low, high, I0_low=204.293, I0_high=204.199)`: 
+        - 计算康普顿散射乘厚度特征 $acd = a_c \cdot d$。
+        - 参数同 `calculate_apd`。
+    - `calculate_Zeff(low, high, I0_low=204.293, I0_high=204.199)`: 
+        - 采用比例法计算近似有效原子序数特征 $Z_{eff} = apd / \mu_H$。
+        - 参数同 `calculate_apd`。
+    - `calculate_Ze(low, high, I0_low=204.293, I0_high=204.199)`: 
+        - 计算代数有效原子序数特征 $Z_e = k \cdot (apd / acd)^n$。
+        - 参数同 `calculate_apd`。
+    - `calculate_mu_H_d(low, high, I0_low=204.293, I0_high=204.199)`: 
+        - 计算高能对数衰减厚度值 $\mu_H \cdot d = \ln(I0\_high / high)$。
+        - 参数同 `calculate_apd`。
+    - `run_step_apd_acd_analysis(include_0331=True, plot_details=True, output_dir='results/thickness_decoupling/apd_acd_analysis')`: 
+        - 核心分析调度主函数。批量启动物理算子解算、2x2物理剖析大图生成、以及多电压 Bulk 系数依赖曲线的生成，并将最终的统计序列持久化为 JSON。
+        - 参数 `include_0331`: 0.6mm 下是否并入历史的 0331 阶梯数据点；`plot_details`: 是否绘制各电压/滤片组合的 2x2 深度大图；`output_dir`: 指定的落地输出目录。
+    - `_load_and_process_step_pixels(filepath, thickness_arr, I0)`:
+        - 阶梯标样像素级特征计算子模块。加载单个材料在指定电压/滤片下的像素数据，进行盲元与边界异常过滤，解算像素级 APD/ACD 特征，统计其均值、标准差，并**保留高精度的像素级原始物理特征数组**。
+        - **参数解释**：
+            - `filepath` (str): 阶梯标样像素序列 pkl 文件的存储路径。
+            - `thickness_arr` (np.ndarray): 包含该样品各级阶梯实际物理厚度 (mm) 的一维数组。
+            - `I0` (float): 入射通道的背景参考对数灰度参考值（16位默认为 52428.0）。
+        - **返回值**：
+            - `list`: 包含各厚度级阶梯物理属性统计量（如均值、标准差）和原始像素级一维数组（如 `apd_raw`, `acd_raw`, `Zeff_raw`, `Ze_raw`）的字典列表。
+    - `_plot_detailed_profiling(voltage_data, f_type, voltage, colors, save_path)`:
+        - 2x2 物理剖析多图绘制子模块。绘制单电压/滤片组合下，三材料的 APD vs 厚度、ACD vs 厚度、特征空间轨迹、以及 $Z_{eff}$ vs 厚度的剖析关系图（包含宏观均值趋势及标准差误差棒曲线，保持原图结构不受污染）。
+        - **参数解释**：
+            - `voltage_data` (dict): 阶段统计字典。
+            - `f_type` (str): 滤片类型。
+            - `voltage` (str): 电压。
+            - `colors` (dict): 颜色配置映射。
+            - `save_path` (str): 图表落地磁盘路径。
+    - `_plot_apd_acd_histograms(voltage_data, f_type, voltage, colors, save_path)`:
+        - APD & ACD 像素级原始分布直方图独立绘制子模块。**将各材料（Cu, Fe, Al）在所有厚度阶梯下的全部有效像素的原始计算物理特征分别提取出来，绘制为独立的 $apd$ 直方图与 $acd$ 直方图大图**，保存为独立的分析结果图，完全不修改、不污染原来的 2x2 剖析折线大图。
+        - **参数解释**：
+            - `voltage_data` (dict): 包含像素级原始物理特征数组的阶段汇总数据字典。
+            - `f_type` (str): 滤片厚度配置描述字符串。
+            - `voltage` (str): 管电压描述字符串。
+            - `colors` (dict): 直方图着色的材料色彩配置映射字典。
+            - `save_path` (str): 独立的直方图分析大图保存路径。
+    - `_plot_coefficient_dependence(coeff_summary, f_type, colors, save_path)`:
+        - 随管电压变化的 bulk 物理系数依赖曲线绘制子模块。
+        - 参数 `coeff_summary`: 系数阶段汇总字典；`f_type`: 滤片厚度识别符；`colors`: 材料颜色字典；`save_path`: 图表落地磁盘路径。
+- **Workflow**:
+    1. 动态过滤各阶梯的核心像素，剔除饱和与非有效区间。
+    2. 计算像素级 $apd$ 与 $acd$ 独立物理贡献，规避非均匀介质在宏观均值上的 Jensen 不等式误差。
+    3. 生成 2x2 深度分析大图，从 $apd$/$acd$ 与物理厚度 $d$ 的严格线性映射、特征空间轨迹、以及 $Z_{eff}$ 的硬化漂移对系统进行全方位评估。
+    4. 提取各电压下的 bulk 材料衰减比值，汇总为随管电压变化的能量相关特性图，并将特征数据集序列化为 JSON 导出。
+
 ### `utils_II.py`
 - **Purpose**: Local wrapper for dual-energy XRT processing.
 - **Functions**:
@@ -60,7 +114,17 @@ This workspace focus on validating XRT image quality and extracting standard sam
     - `check_step_gradient`: Analyzes row-wise mean gradients using Pearson Correlation and dynamic thresholds.
     - `warp_straighten`: Aligns tilted objects using perspective transforms.
     - `get_10_step_means`: Multi-axis core sampling (80% width, 60% height).
-    - `save_contour_data`: Organized saving of warped images and p### `pick_ores.py`
+    - `save_contour_data`: Organized saving of warped images and pickle data.
+    - `plot_ul_cdf`: Calculates and plots the cumulative distribution (CDF) for low-energy attenuation.
+    - `plot_ore_grayscale_distribution`: 绘制每块矿石在不同电压下的高低能灰度值分布直方图，并将所有电压的子图整合进一张大图中保存。灰度值上下限（`x_min` 和 `x_max`）默认开启自适应动态判定（基于 0.5% 和 99.5% 分位数），且在每个子图的 legend 中标注 `=0` 和 `<2560`（16位）/ `<10`（8位）的低灰度/死像素所占的百分比。
+        - 参数 `oid` (str): 矿石唯一标识符；`ft` (str): 滤片或数据集配置；`voltage_data` (dict): 各电压对应的有效像素对字典；`save_path` (str/Path): 保存路径；`x_min` (float/int, 可选): 横坐标下限，为 None 时自动动态计算；`x_max` (float/int, 可选): 横坐标上限，为 None 时自动动态计算。
+    - `get_ore_lower_threshold`: 统一的矿石灰度过滤阈值集中管理器。
+        - 参数 `is_ore` (bool): 当前是否为矿石数据；`v_max` (int/float): 图像最大可能灰度值（255 或 65535）；`ratio` (float, 可选): 最低允许透过率比例，默认为 0.05 (即 5%)。
+        - 返回: `lower_th` (int, 动态计算得到的过滤下限值)。
+
+
+
+### `pick_ores.py`
 - **Purpose**: 用于矿石轮廓提取与多模型分类结果的可视化标注。为了保证脚本的完全独立性与极高的执行效率，本脚本已直接完整集成了原 `utils_II.py` 中的关键几何提取和畸变校正算法（如 `get_bricks`, `get_bricks_watershed` 等），**已完全剥离对外部模块 `utils_II.py` 的导入依赖**。支持接收摆放矿石的 dual-energy 或低能图像，提取出所有矿石轮廓。本模块在图像最显眼位置的背景框内，使用 OpenCV 绘制极高对比度的数字类别（**`1`**、**`2`**、**`3`**、**`4`**）代表第一至第四类，并在顶部附带 1-based 序号 `f"#{ore_id}"` 进行精确追踪。支持以下三种分类划分机制：
     - **方法 1 (二分类配对方法)**：基于两模型预测的 0/1 类别（1代表精矿，0代表废矿），组合为四类标签（`11` -> 1，`10` -> 2，`01` -> 3，`00` -> 4）。
     - **方法 2 (原子序数 $Z_{eff}$ 多档分类与加权决策方法)**：输入两个模型预测的 $Z_{eff}$ 浮点数值，首先将各自在图中的预测值分别归一化到 `[0, 1]` 区间，再等分为四档 (`T1` 至 `T4`)。当两模型分档不一致时，采用已归一化值的加权和 $Z_{norm, weighted} = 0.6 \cdot Z_{norm, 1} + 0.4 \cdot Z_{norm, 2}$ 直接判定所属档位，输出对应的数字类别标签。
@@ -245,7 +309,7 @@ This workspace focus on validating XRT image quality and extracting standard sam
         - 参数 `x_coords_dict`: X轴坐标字典，格式为 `{mat_name: ndarray}` (dict)。
         - 参数 `color_by_step`: 是否按照步进/圆盘的索引使用不同的颜色绘制散点图 (bool, 默认False)。
         - 参数 `plot_mode`: 散点图绘制模式 ('all' 或 'means')。
-        - **特性**: 自动扫描数据确定自适应坐标轴限制，并强制每一行的 Y 轴（及相关 X 轴）保持一致以增强可比性。**现已支持自动识别和映射类别型 (Categorical) X 轴变量 (如矿石 ID)。**
+        - **特性**: 自动扫描数据确定自适应坐标轴限制，并强制每一行的 Y 轴（及相关 X 轴）保持一致以增强可比性。**现已支持自动识别 and 映射类别型 (Categorical) X 轴变量 (如矿石 ID)。同时，在分析矿石样品（Ore）时，为了排除硬件底噪、无效盲元和极高衰减所致异常像素，算法会自动排除灰度值小于 2560（16位，对应8位下的10）或小于 10（8位）的所有像素，并在图表大标题 (suptitle) 中添加注记说明。**
 - **Workflow**:
     1. **Iterative Loading**: Dynamically loads data from single files (steps), multiple files (disks), and wildcard matching for ores. Now supports datasets like `20260401` up to 5 voltages (140kV-180kV), including logic to combine multi-image ore extracts (e.g. `1_20` and `21_38`) into a continuous 0-37 ID sequence.
     2. **Z_eff Integration**: Loads disk grades from `disk_grades.json` and calculates $Z_{eff}$ (using `utils_II.calculate_effective_z`) to use as the x-coordinate (grade proxy).
@@ -258,9 +322,13 @@ This workspace focus on validating XRT image quality and extracting standard sam
 - **Configuration Parameters**:
     - `analysis_target`: 控制分析范围。可选值：`"step"` (仅处理阶梯样块), `"ore"` (仅处理矿石样块), `"all"` (处理全部)。
 - **Key Features**:
-    - **Global Scaling**: 自动扫描阶梯样块数据以确定全局统一的坐标轴范围，确保跨电压、跨材质、跨滤片的图表具有视觉可比性。
-    - **Ore ul/uh Analysis**: 为每个矿石 ID（如 01, 18, PbZn 等）生成独立的电压对比图，分析比值 $u_L/u_H = \ln(I_0/L)/\ln(I_0/H)$ 的随电压变化趋势，并在 0.6mm 图中叠加 0401 数据作为参考。
-    - **Result Export**: 将各材质在不同电压下的衰减斜率 $\mu_L, \mu_H$ 导出为 `attenuation_slopes.json` 供其他模型调用。
+    - **Global Scaling**: 自动扫描阶梯样块数据以确定统一的横轴(X轴)对齐范围(130kV-330kV)，并为每一个厚度分别计算自适应全局统一 Y 轴，确保跨电压、跨材质、跨滤片的图表具有严格的视觉可比性。
+    - **核心流程**：
+  - **动态获取 Y 轴上限**: `get_dynamic_ylim` 会自动根据每个厚度的结果动态放开/收紧坐标限制。
+  - **阶梯厚度遍历循环**：不再使用单一的“拟合斜率”或“指定单层”，而是强制遍历从最薄到最厚（0-9）的所有阶梯层，分别计算各层对应的衰减特性。
+  - **物质比例与差值分析**：计算同种物质的高低能衰减系数比例 ($L/H$) 及不同物质之间的衰减系数比例。
+  - **单块矿石综合衰减特性多通道分析**：在单块矿石对比分析中，进行 $\mu$ 衰减值计算和散点多项式回归时，会应用中央控制的 `< 2560` (16位) / `< 10` (8位) 阈值过滤，并对 `ore_{oid}_comprehensive_analysis.png` 的大标题追加剔除注记；而专门收集来绘制 `ore_{oid}_grayscale_distribution.png` 灰度直方图大图的像素集合则保持为**完全未经过滤的原始像素**，以供完整、真实地反映探测器底噪和死盲元分布状态。
+  - **独立结果归档**：遍历所有厚度后，每层厚度的 $2\times3$ 综合大图 (`slope_summary`) 以及详细参数数据 (`attenuation_slopes.json`) 将会自动保存到统一的文件夹内，并在文件名中体现具体的厚度信息（如 `attenuation_slopes_2mm_CuFe_12mm_Al.json`），实现全厚度数据的直观对比与查阅。
 
 ### `read_raw.py`
 - **Purpose**: Batch convert 16-bit `.raw` XRT images into `.png` format.
@@ -288,6 +356,14 @@ This workspace focus on validating XRT image quality and extracting standard sam
         - 参数 `save_path`: 图像输出的完整路径 (str, 默认为None, 默认保存在 `img_dir` 内)。
 
 
+
+## 2026-05-20
+- **Feature**: End-to-End 16-bit Image Processing Pipeline.
+    - Updated `utils_II.py` (`get_bricks`, `get_bricks_watershed`) to use `cv2.IMREAD_ANYDEPTH` for natively reading 16-bit TIF/PNG files without downsampling to 8-bit.
+    - Added dynamic scaling for the binarization threshold `th_val` to automatically adapt to 16-bit (0-65535) ranges.
+    - Modified `extract_sample_values.py`, `extract_0429_RaySov.py`, and `extract_0429_RaySov_from_mask.py` to direct output saving into dedicated `_16bit` folders (e.g., `results/20260429_RaySov_16bit`).
+    - Changed `extract_0429_RaySov_from_mask.py` normalization logic to target 16-bit depth instead of 8-bit.
+    - Updated `fit_hl_curve.py` and `fit_hl_curve_0429.py` to use dynamic `v_max` masking (255 or 65535), ensuring compatibility with high-dynamic-range `.pkl` data from the 16-bit pipeline.
 
 ## 2026-04-17
 - **Optimization**: Optimized `extract_sample_values.py` for 0409 dataset. When filenames contain "270us", it now uses `roi_270` and performs a 1.5x vertical compression using `cv2.INTER_AREA` interpolation before subsequent processing.
@@ -325,6 +401,8 @@ This workspace focus on validating XRT image quality and extracting standard sam
     6. Supports **16-bit precision** (preserving raw pixel values in `uint16`) or 8-bit normalization.
 
 
-
 ## Data Paths
 - Standard Samples: `data/` or relevant relative path.
+
+## IDE Configuration
+- **MCP Config**: `C:\Users\yaoji\.gemini\antigravity-ide\mcp_config.json` 注册并运行了官方 `@modelcontextprotocol/server-pdf` MCP 服务器（使用 `npx` 自动执行），赋予 AI 助手原生、高性能阅读本地和远程 PDF 文档、解析文本和交互式文档处理的能力。

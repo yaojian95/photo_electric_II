@@ -19,14 +19,15 @@ def main():
     # data_dir = r'E:\multi_source_info\data_dir\20260407_Sample_test'
     roi = [0, 1200, 200, 1336]; all_type = None; align_direct = 'y'
 
-    data_dir = r'E:\multi_source_info\data_dir\20260401'; 
-    roi = [0, 1400, 100, 1586]; all_type = 'ore'; align_direct = 'x'
+    # data_dir = r'E:\multi_source_info\data_dir\20260401'; 
+    # roi = [0, 1400, 100, 1586]; all_type = 'ore'; align_direct = 'x'
+    
     th_val = 190; fy = 0.9909 #fy单独控制高能图像的校准比例
     
-    data_dir = r'E:\multi_source_info\data_dir\20260512_180kV1ma_all_dual\dual'
-    roi = [0, -1, 0, -1]; all_type = None; align_direct = 'y'; th_val = 200
-    # Set to a specific string (e.g., 'ore', 'disk', 'block', 'step_sample') to force all contours 
-    # to be classified as that type. Set to None for automatic classification based on geometry.
+    # data_dir = r'E:\multi_source_info\data_dir\20260512_180kV1ma_all_dual\dual'
+    # roi = [0, -1, 0, -1]; all_type = None; align_direct = 'y'; th_val = 200
+    # # Set to a specific string (e.g., 'ore', 'disk', 'block', 'step_sample') to force all contours 
+    # # to be classified as that type. Set to None for automatic classification based on geometry.
     
     reverse_sort = False
 
@@ -45,20 +46,18 @@ def main():
     
     # Extract folder name from data_dir to create a subfolder in results
     folder_name = os.path.basename(data_dir.rstrip('\\'))
-    output_dir = os.path.join('results', folder_name)
+    output_dir = os.path.join('results', folder_name + '_16bit')
     print(output_dir)
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
 
-    # Adaptive file discovery: find all .tif files with 'kV' in the name
-    # tif_files = [f for f in os.listdir(data_dir) 
-    #              if f.lower().endswith('.tif') and 'kv' in f.lower()]
-
+    # Adaptive file discovery: support both .tif (with 'kv') and .png (with 'dual')
     tif_files = [f for f in os.listdir(data_dir) 
-                 if f.lower().endswith('.png') and 'dual' in f.lower()]
+                 if (f.lower().endswith('.tif') and 'kv' in f.lower()) or 
+                    (f.lower().endswith('.png') and 'dual' in f.lower())]
     
     if not tif_files:
-        print(f"No matching kV .tif files found in {data_dir}")
+        print(f"No valid image files (.tif with 'kV' or .png with 'dual') found in {data_dir}")
         return
 
     all_summaries = []

@@ -12,7 +12,7 @@ voltages = ['140kV', '160kV', '180kV']
 output_dir = 'results/thickness_decoupling'
 os.makedirs(output_dir, exist_ok=True)
 
-def perform_comprehensive_analysis(voltage, samples_dict, output_subdir, title_prefix, x_label, x_coords_dict, limits=None, color_by_step=False, plot_mode='all'):
+def perform_comprehensive_analysis(voltage, samples_dict, output_subdir, title_prefix, x_label, x_coords_dict, limits=None, color_by_step=False, plot_mode='all', I0=204.0):
     """
     通用 2x3 综合分析绘图函数
     limits: { 'raw_x': (min, max), 'raw_y': (min, max), 'log_x': (min, max), 'log_y': (min, max) }
@@ -21,7 +21,7 @@ def perform_comprehensive_analysis(voltage, samples_dict, output_subdir, title_p
     """
     os.makedirs(output_subdir, exist_ok=True)
     fig, axes = plt.subplots(2, 3, figsize=(18, 12))
-    I0 = 204.0
+    # I0 passed as argument
 
     # 1. 计算自适应坐标限制 (扫描所有数据)
     all_L_pts, all_H_pts = [], []
@@ -34,7 +34,9 @@ def perform_comprehensive_analysis(voltage, samples_dict, output_subdir, title_p
         all_x_vals.append(cur_x)
         
         for l, h in zip(L_list, H_list):
-            valid = (l > 1) & (h > 1) & (l < 255) & (h < 255)
+            v_max = 65535 if l.dtype == np.uint16 or np.max(l) > 255 else 255
+            lower_th = utils_II.get_ore_lower_threshold("ore" in title_prefix.lower(), v_max)
+            valid = (l >= lower_th) & (h >= lower_th) & (l < v_max) & (h < v_max)
             if np.any(valid):
                 lv, hv = l[valid].astype(np.float32), h[valid].astype(np.float32)
                 if plot_mode == 'means':
@@ -63,7 +65,7 @@ def perform_comprehensive_analysis(voltage, samples_dict, output_subdir, title_p
     h_min, h_max = get_robust_range(all_H_pts)
     raw_min, raw_max = min(l_min, h_min), max(l_max, h_max)
     pad_raw = (raw_max - raw_min) * 0.15
-    raw_lims = (max(0, raw_min - pad_raw), min(255, raw_max + pad_raw))
+    raw_lims = (max(0, raw_min - pad_raw), raw_max + pad_raw)
 
     log_l_min, log_l_max = get_robust_range(all_log_L_pts)
     log_h_min, log_h_max = get_robust_range(all_log_H_pts)
@@ -111,22 +113,36 @@ def perform_comprehensive_analysis(voltage, samples_dict, output_subdir, title_p
         step_L_stds = []
         step_H_means = []
         step_H_stds = []
+        log_L_means = []
+        log_H_means = []
         for l, h in zip(L_list, H_list):
-            v_idx = (l > 1) & (h > 1) & (l < 255) & (h < 255)
+            v_max = 65535 if l.dtype == np.uint16 or np.max(l) > 255 else 255
+            lower_th = utils_II.get_ore_lower_threshold("ore" in title_prefix.lower(), v_max)
+            v_idx = (l >= lower_th) & (h >= lower_th) & (l < v_max) & (h < v_max)
             if np.any(v_idx):
                 lv, hv = l[v_idx], h[v_idx]
                 step_L_means.append(np.mean(lv)); step_L_stds.append(np.std(lv))
                 step_H_means.append(np.mean(hv)); step_H_stds.append(np.std(hv))
+                
+                log_l_vals = np.log(I0 / np.maximum(lv, 1.0))
+                log_h_vals = np.log(I0 / np.maximum(hv, 1.0))
+                log_L_means.append(np.mean(log_l_vals))
+                log_H_means.append(np.mean(log_h_vals))
             else:
                 step_L_means.append(np.nan); step_L_stds.append(np.nan)
                 step_H_means.append(np.nan); step_H_stds.append(np.nan)
+                log_L_means.append(np.nan); log_H_means.append(np.nan)
 
         step_L_means, step_L_stds = np.array(step_L_means), np.array(step_L_stds)
         step_H_means, step_H_stds = np.array(step_H_means), np.array(step_H_stds)
+        log_L_means = np.array(log_L_means)
+        log_H_means = np.array(log_H_means)
 
         L_all = np.concatenate(L_list).astype(np.float32)
         H_all = np.concatenate(H_list).astype(np.float32)
-        valid = (L_all > 1) & (H_all > 1) & (L_all < 255) & (H_all < 255)
+        v_max = 65535 if L_all.dtype == np.uint16 or np.max(L_all) > 255 else 255
+        lower_th = utils_II.get_ore_lower_threshold("ore" in title_prefix.lower(), v_max)
+        valid = (L_all >= lower_th) & (H_all >= lower_th) & (L_all < v_max) & (H_all < v_max)
         L_v, H_v = L_all[valid], H_all[valid]
         
         cur_x_raw = x_coords_dict[mat_name][:len(L_list)]
@@ -154,7 +170,9 @@ def perform_comprehensive_analysis(voltage, samples_dict, output_subdir, title_p
             if color_by_step:
                 cmap = plt.get_cmap('tab10' if len(L_list) <= 10 else 'tab20')
                 for i, (l, h) in enumerate(zip(L_list, H_list)):
-                    valid_i = (l > 1) & (h > 1) & (l < 255) & (h < 255)
+                    v_max = 65535 if l.dtype == np.uint16 or np.max(l) > 255 else 255
+                    lower_th = utils_II.get_ore_lower_threshold("ore" in title_prefix.lower(), v_max)
+                    valid_i = (l >= lower_th) & (h >= lower_th) & (l < v_max) & (h < v_max)
                     if np.any(valid_i):
                         if plot_mode == 'all':
                             axes[0, 0].scatter(l[valid_i], h[valid_i], color=cmap(i), alpha=0.05, s=0.5, label=f"ID:{cur_x_raw[i]}")
@@ -182,18 +200,19 @@ def perform_comprehensive_analysis(voltage, samples_dict, output_subdir, title_p
                 axes[0, 0].plot(x_fit, np.poly1d(coeffs)(x_fit), color=fit_color, label=f"{display_label} Fit")
 
         # Row 2: Log Transform
-        log_L_v, log_H_v = np.log(I0 / np.maximum(L_v, 1e-6)), np.log(I0 / np.maximum(H_v, 1e-6))
-        log_L_means = np.log(I0 / np.array(step_L_means))
-        log_H_means = np.log(I0 / np.array(step_H_means))
+        log_L_v, log_H_v = np.log(I0 / np.maximum(L_v, 1.0)), np.log(I0 / np.maximum(H_v, 1.0))
+        # log_L_means 和 log_H_means 已经在上方采用先取对数再求均值的方式计算完毕
 
         if len(log_L_v) > 0:
             if color_by_step:
                 cmap = plt.get_cmap('tab10' if len(L_list) <= 10 else 'tab20')
                 for i, (l, h) in enumerate(zip(L_list, H_list)):
-                    valid_i = (l > 1) & (h > 1) & (l < 255) & (h < 255)
+                    v_max = 65535 if l.dtype == np.uint16 or np.max(l) > 255 else 255
+                    lower_th = utils_II.get_ore_lower_threshold("ore" in title_prefix.lower(), v_max)
+                    valid_i = (l >= lower_th) & (h >= lower_th) & (l < v_max) & (h < v_max)
                     if np.any(valid_i):
-                        ll = np.log(I0 / np.maximum(l[valid_i], 1e-6))
-                        hh = np.log(I0 / np.maximum(h[valid_i], 1e-6))
+                        ll = np.log(I0 / np.maximum(l[valid_i], 1.0))
+                        hh = np.log(I0 / np.maximum(h[valid_i], 1.0))
                         if plot_mode == 'all':
                             axes[1, 0].scatter(ll, hh, color=cmap(i), alpha=0.05, s=0.5)
                         else: # 'means'
@@ -260,15 +279,27 @@ def perform_comprehensive_analysis(voltage, samples_dict, output_subdir, title_p
                 for lh in leg.legend_handles if hasattr(leg, 'legend_handles') else leg.legendHandles:
                     lh.set_alpha(1.0)
 
-    plt.suptitle(f"{title_prefix} Analysis for {voltage} (I0={I0})", fontsize=16)
+    full_title = f"{title_prefix} Analysis for {voltage} (I0={I0})"
+    if "ore" in title_prefix.lower():
+        has_16bit = False
+        for mat_name, (L_list, H_list) in samples_dict.items():
+            for l in L_list:
+                if l.dtype == np.uint16 or np.max(l) > 255:
+                    has_16bit = True
+                    break
+            if has_16bit: break
+        ex_val = 2560 if has_16bit else 10
+        full_title += f" (Excluding Grayscale < {ex_val})"
+    plt.suptitle(full_title, fontsize=16)
     plt.tight_layout(rect=[0, 0.03, 1, 0.95])
     plt.savefig(f"{output_subdir}/{voltage}_analysis.png")
     plt.close()
 
 # --- Main Execution ---
 voltages = ['140kV', '150kV', '160kV', '170kV', '180kV']
-input_dir = 'results/20260401/'
+input_dir = 'results/20260401_16bit/'
 base_results_dir = f'results/thickness_decoupling/H_L_fit/{input_dir.strip("/").split("/")[-1]}'
+I0_val = 52428.0 if '16bit' in input_dir else 204.0
 step_mats = {0: 'Cu_step', 1: 'Fe_step', 2: 'Al_step_block'}
 thicknesses = { 'Cu_step': np.arange(2, 22, 2), 'Fe_step': np.arange(2, 22, 2), 'Al_step_block': np.arange(12, 32, 2) }
 
@@ -298,7 +329,7 @@ for voltage in voltages:
     
     if step_data:
         perform_comprehensive_analysis(voltage, step_data, f"{base_results_dir}/steps", 
-                                       "Step Sample", "Thickness (mm)", thicknesses, plot_mode='all')
+                                       "Step Sample", "Thickness (mm)", thicknesses, plot_mode='all', I0=I0_val)
 
     # 2. Disk Samples Analysis
     import glob
@@ -328,7 +359,7 @@ for voltage in voltages:
         disk_data = { "Mixed_Disks": (disk_L_list, disk_H_list) }
         disk_x_coords = { "Mixed_Disks": np.array(active_z_effs) }
         perform_comprehensive_analysis(voltage, disk_data, f"{base_results_dir}/disks", 
-                                       "Disk Sample (Z_eff Proxy)", "Equivalent Atomic Number (Z_eff)", disk_x_coords, color_by_step=True, plot_mode='means')
+                                       "Disk Sample (Z_eff Proxy)", "Equivalent Atomic Number (Z_eff)", disk_x_coords, color_by_step=True, plot_mode='means', I0=I0_val)
 
     # 3. Ore Samples Analysis
     def natural_sort_key(s):
@@ -363,6 +394,6 @@ for voltage in voltages:
         ore_data = { "Mixed_Ores": (ore_L_list, ore_H_list) }
         ore_x_coords = { "Mixed_Ores": np.array(ore_ids) }
         perform_comprehensive_analysis(voltage, ore_data, f"{base_results_dir}/ores", 
-                                       "Ore Sample", "Ore ID", ore_x_coords, color_by_step=True, plot_mode='means')
+                                       "Ore Sample", "Ore ID", ore_x_coords, color_by_step=True, plot_mode='means', I0=I0_val)
 
 print(f"\nAnalysis complete. Results saved in {base_results_dir}")

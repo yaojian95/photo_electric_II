@@ -193,7 +193,7 @@ def main():
                     print(f"Failed to rename {filename}: {e}")
     # --------------------------
 
-    read_mode = '8bit' # 选项: '8bit' 或 '16bit'
+    read_mode = '16bit' # 选项: '8bit' 或 '16bit'
     roi = [0, -1, 0, -1] # 处理所有高度和宽度
     
     if read_mode == '16bit':
@@ -203,7 +203,7 @@ def main():
         
     th_type = cv2.THRESH_BINARY
     
-    folder_name = '20260429_RaySov'
+    folder_name = '20260429_RaySov_16bit'
     output_dir = os.path.join('results', folder_name)
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
