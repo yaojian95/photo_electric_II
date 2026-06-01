@@ -309,8 +309,231 @@ def perform_comprehensive_analysis(voltage, samples_dict, output_subdir, title_p
     plt.savefig(f"{output_subdir}/{voltage}_analysis.png")
     plt.close()
 
+def plot_combined_slope_summaries(global_raw_data, thicknesses_0429, include_0331, mu_mode, mat_physics, step_mats, script_dir):
+    """
+    Plot combined slope summaries for 0.6mm and 1.2mm filters together.
+    
+    Parameters:
+    -----------
+    global_raw_data : dict
+        A nested dictionary containing the scanned raw log values for each filter, material, and voltage.
+        Format: {f_type: {mat: {'v': [...], 'cur_x': [...], 'log_l': [...], 'log_h': [...], 'vl': [...], 'vh': [...]}}}
+    thicknesses_0429 : dict
+        Thickness arrays for each step material in 0429 dataset.
+        Format: {mat_name: np.ndarray}
+    include_0331 : bool
+        Whether 0331 historical data points are included in the 0.6mm filter analysis.
+    mu_mode : str
+        Attenuation coefficient mode: 'mu' (Linear, mm^-1) or 'mu_m' (Mass, cm^2/g).
+    mat_physics : dict
+        Physical properties (Z, Ar, rho) for standard metals (Cu, Fe, Al) used to calculate theoretical limits.
+    step_mats : dict
+        Mapping from index to standard step material name. E.g. {0: 'Cu_step', 1: 'Fe_step', 2: 'Al_step'}
+    script_dir : str
+        The directory path of the active script, used as base for saving outputs.
+        
+    Returns:
+    --------
+    None
+    """
+    filter_types = ['0.6mm', '1.2mm']
+    
+    # Custom color palette for materials
+    mat_colors = {
+        'Cu_step': '#d62728', # Crimson Red
+        'Fe_step': '#1f77b4', # Slate Blue
+        'Al_step': '#2ca02c'  # Emerald Green
+    }
+    
+    # Predefined colors for material pairs to avoid overlapping/generic colors
+    pair_colors = {
+        ('Cu_step', 'Fe_step'): '#9467bd', # Purple
+        ('Cu_step', 'Al_step'): '#8c564b', # Brown
+        ('Fe_step', 'Al_step'): '#e377c2'  # Magenta
+    }
+    
+    def get_pair_color(m1, m2):
+        if (m1, m2) in pair_colors:
+            return pair_colors[(m1, m2)]
+        if (m2, m1) in pair_colors:
+            return pair_colors[(m2, m1)]
+        return '#7f7f7f' # Fallback gray
+
+    filter_styles = {
+        '0.6mm': {'ls': '-', 'marker': 'o'},
+        '1.2mm': {'ls': '--', 'marker': '^'}
+    }
+
+    max_steps = max(len(t) for t in thicknesses_0429.values())
+    for step_idx in range(max_steps):
+        cu_th = thicknesses_0429['Cu_step'][step_idx] if step_idx < len(thicknesses_0429['Cu_step']) else "N/A"
+        al_th = thicknesses_0429['Al_step'][step_idx] if step_idx < len(thicknesses_0429['Al_step']) else "N/A"
+        step_name = f"{cu_th}mm_CuFe_{al_th}mm_Al"
+        
+        print(f">>> Generating Combined Slope Summary Plot for step: {step_name} ...")
+        
+        # Collect and analyze data from both filters to compute unified dynamic limits
+        step_storage = {ft: {mat: {'v': [], 'mu_l': [], 'mu_h': []} for mat in step_mats.values()} for ft in filter_types}
+        step_mu_vals, step_lh_vals, step_inter_l, step_inter_h, step_diff = [], [], [], [], []
+        
+        for ft in filter_types:
+            for mat in step_mats.values():
+                v_list = global_raw_data[ft][mat]['v']
+                for i in range(len(v_list)):
+                    v_int = v_list[i]
+                    cur_x = global_raw_data[ft][mat]['cur_x'][i]
+                    log_l = global_raw_data[ft][mat]['log_l'][i]
+                    log_h = global_raw_data[ft][mat]['log_h'][i]
+                    vl = global_raw_data[ft][mat]['vl'][i]
+                    vh = global_raw_data[ft][mat]['vh'][i]
+                    
+                    if step_idx < len(cur_x):
+                        t_mm = cur_x[step_idx]
+                        if t_mm > 0:
+                            if mu_mode == 'mu_m':
+                                rho = mat_physics[mat]['rho']
+                                mu_l = 10.0 * log_l[step_idx] / (t_mm * rho) if vl[step_idx] else np.nan
+                                mu_h = 10.0 * log_h[step_idx] / (t_mm * rho) if vh[step_idx] else np.nan
+                            else:
+                                mu_l = log_l[step_idx] / t_mm if vl[step_idx] else np.nan
+                                mu_h = log_h[step_idx] / t_mm if vh[step_idx] else np.nan
+                        else:
+                            mu_l, mu_h = np.nan, np.nan
+                    else:
+                        mu_l, mu_h = np.nan, np.nan
+                        
+                    step_storage[ft][mat]['v'].append(v_int)
+                    step_storage[ft][mat]['mu_l'].append(mu_l)
+                    step_storage[ft][mat]['mu_h'].append(mu_h)
+                    
+                    if np.isfinite(mu_l): step_mu_vals.append(mu_l)
+                    if np.isfinite(mu_h): step_mu_vals.append(mu_h)
+                    if np.isfinite(mu_l) and np.isfinite(mu_h):
+                        step_lh_vals.append(mu_l / np.maximum(mu_h, 1e-9))
+            
+            # Inter-material calculations per filter
+            mats = list(step_mats.values())
+            for i in range(len(mats)):
+                for j in range(i+1, len(mats)):
+                    m1, m2 = mats[i], mats[j]
+                    sl1 = np.array(step_storage[ft][m1]['mu_l'])
+                    sl2 = np.array(step_storage[ft][m2]['mu_l'])
+                    sh1 = np.array(step_storage[ft][m1]['mu_h'])
+                    sh2 = np.array(step_storage[ft][m2]['mu_h'])
+                    
+                    valid_l = np.isfinite(sl1) & np.isfinite(sl2) & (sl2 != 0)
+                    valid_h = np.isfinite(sh1) & np.isfinite(sh2) & (sh2 != 0)
+                    step_inter_l.extend(sl1[valid_l] / sl2[valid_l])
+                    step_inter_h.extend(sh1[valid_h] / sh2[valid_h])
+                    
+                    r1 = sl1 / np.maximum(sh1, 1e-9)
+                    r2 = sl2 / np.maximum(sh2, 1e-9)
+                    diff = np.abs(r1 - r2)
+                    step_diff.extend(diff[np.isfinite(diff)])
+        
+        # Calculate unified vertical axis limits across both filter types
+        cur_mu_ylim = get_dynamic_ylim(step_mu_vals)
+        cur_inter_ratio_l_ylim = get_dynamic_ylim(step_inter_l, default=(0, 10.0))
+        cur_inter_ratio_h_ylim = get_dynamic_ylim(step_inter_h, default=(0, 10.0))
+        cur_lh_ratio_ylim = get_dynamic_ylim(step_lh_vals, default=(0, 3.0))
+        cur_lh_abs_diff_ylim = get_dynamic_ylim(step_diff, default=(0, 1.0))
+        
+        fig, axes = plt.subplots(2, 3, figsize=(20, 12))
+        
+        if mu_mode == 'mu_m':
+            mu_L_symbol = r"\mu_{m, L}"
+            mu_H_symbol = r"\mu_{m, H}"
+            mu_symbol = r"\mu_m"
+        else:
+            mu_L_symbol = r"\mu_L"
+            mu_H_symbol = r"\mu_H"
+            mu_symbol = r"\mu"
+        mu_desc = "Mass Attenuation" if mu_mode == 'mu_m' else "Linear Attenuation"
+        
+        title_suffix = " (with 0331)" if include_0331 else ""
+        fig.suptitle(fr"{mu_desc} (${mu_symbol}$) Combined Analysis{title_suffix} - (Step: {step_name})", fontsize=18)
+        
+        mats = list(step_mats.values())
+        
+        # Plot data for each filter type
+        for ft in filter_types:
+            style = filter_styles[ft]
+            sort_idx = np.argsort(step_storage[ft]['Cu_step']['v'])
+            
+            for mat in mats:
+                v = np.array(step_storage[ft][mat]['v'])[sort_idx]
+                ml = np.array(step_storage[ft][mat]['mu_l'])[sort_idx]
+                mh = np.array(step_storage[ft][mat]['mu_h'])[sort_idx]
+                
+                color = mat_colors[mat]
+                
+                # Use solid for 0.6mm, dashed for 1.2mm, matching circle/triangle markers
+                axes[0, 0].plot(v, ml, color=color, ls=style['ls'], marker=style['marker'], label=f"{mat} ({ft})")
+                axes[0, 1].plot(v, mh, color=color, ls=style['ls'], marker=style['marker'], label=f"{mat} ({ft})")
+                axes[0, 2].plot(v, ml / np.maximum(mh, 1e-9), color=color, ls=style['ls'], marker=style['marker'], label=f"{mat} {mu_L_symbol}/{mu_H_symbol} ({ft})")
+            
+            for i in range(len(mats)):
+                for j in range(i+1, len(mats)):
+                    m1, m2 = mats[i], mats[j]
+                    v = np.array(step_storage[ft][m1]['v'])[sort_idx]
+                    r1 = np.array(step_storage[ft][m1]['mu_l'])[sort_idx] / np.maximum(np.array(step_storage[ft][m1]['mu_h'])[sort_idx], 1e-9)
+                    r2 = np.array(step_storage[ft][m2]['mu_l'])[sort_idx] / np.maximum(np.array(step_storage[ft][m2]['mu_h'])[sort_idx], 1e-9)
+                    r_l = np.array(step_storage[ft][m1]['mu_l'])[sort_idx] / np.maximum(np.array(step_storage[ft][m2]['mu_l'])[sort_idx], 1e-9)
+                    r_h = np.array(step_storage[ft][m1]['mu_h'])[sort_idx] / np.maximum(np.array(step_storage[ft][m2]['mu_h'])[sort_idx], 1e-9)
+                    
+                    color = get_pair_color(m1, m2)
+                    
+                    axes[1, 0].plot(v, r_l, color=color, ls=style['ls'], marker=style['marker'], label=f"{m1}/{m2} ({mu_L_symbol}) ({ft})")
+                    axes[1, 1].plot(v, r_h, color=color, ls=style['ls'], marker=style['marker'], label=f"{m1}/{m2} ({mu_H_symbol}) ({ft})")
+                    axes[1, 2].plot(v, np.abs(r1 - r2), color=color, ls=style['ls'], marker=style['marker'], label=f"|{m1}-{m2}| ({mu_symbol}) ({ft})")
+
+        # Plot the filter-independent theoretical horizontal reference lines exactly once per pair
+        for i in range(len(mats)):
+            for j in range(i+1, len(mats)):
+                m1, m2 = mats[i], mats[j]
+                color = get_pair_color(m1, m2)
+                if m1 in mat_physics and m2 in mat_physics:
+                    p1, p2 = mat_physics[m1], mat_physics[m2]
+                    if mu_mode == 'mu_m':
+                        theo_l = ( (p1['Z']**4.5) / p1['Ar'] ) / ( (p2['Z']**4.5) / p2['Ar'] )
+                        theo_h = ( p1['Z'] / p1['Ar'] ) / ( p2['Z'] / p2['Ar'] )
+                    else:
+                        theo_l = ( (p1['Z']**4.5) / p1['Ar'] * p1['rho'] ) / ( (p2['Z']**4.5) / p2['Ar'] * p2['rho'] )
+                        theo_h = ( p1['Z'] / p1['Ar'] * p1['rho'] ) / ( p2['Z'] / p2['Ar'] * p2['rho'] )
+                    
+                    # Single reference line representation per pair
+                    axes[1, 0].axhline(y=theo_l, color=color, linestyle=':', alpha=0.8, label=f"{m1}/{m2} Theo (PH)")
+                    axes[1, 1].axhline(y=theo_h, color=color, linestyle=':', alpha=0.8, label=f"{m1}/{m2} Theo (C)")
+
+        # Axes labels and configuration
+        for ax in axes.flat:
+            ax.set_xlabel("Voltage (kV)")
+            ax.grid(True)
+            ax.legend(fontsize='x-small')
+            ax.set_xlim(130, 330) # Align standard voltage range
+        
+        mu_unit = r"$\mathrm{cm}^2/\mathrm{g}$" if mu_mode == 'mu_m' else r"$\mathrm{mm}^{-1}$"
+        axes[0, 0].set_title(fr"${mu_L_symbol}$ vs Voltage"); axes[0, 0].set_ylabel(fr"${mu_L_symbol}\ ({mu_unit})$"); axes[0, 0].set_ylim(cur_mu_ylim)
+        axes[0, 1].set_title(fr"${mu_H_symbol}$ vs Voltage"); axes[0, 1].set_ylabel(fr"${mu_H_symbol}\ ({mu_unit})$"); axes[0, 1].set_ylim(cur_mu_ylim)
+        axes[0, 2].set_title(fr"${mu_L_symbol} / {mu_H_symbol}$ Ratio"); axes[0, 2].set_ylim(cur_lh_ratio_ylim)
+        axes[1, 0].set_title(fr"Inter-Material Ratio (${mu_L_symbol}$)"); axes[1, 0].set_ylim(cur_inter_ratio_l_ylim)
+        axes[1, 1].set_title(fr"Inter-Material Ratio (${mu_H_symbol}$)"); axes[1, 1].set_ylim(cur_inter_ratio_h_ylim)
+        axes[1, 2].set_title(fr"Inter-Material ${mu_L_symbol}/{mu_H_symbol}$ Abs Diff"); axes[1, 2].set_ylim(cur_lh_abs_diff_ylim)
+
+        plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+        
+        # Save to the combined/slope_summary_{mu_mode} folder
+        out_base = os.path.basename(os.path.join(script_dir, 'results/20260429_mask_generated_16bit'))
+        combined_save_dir = os.path.join(script_dir, f"results/thickness_decoupling/H_L_fit/{out_base}/combined/slope_summary_{mu_mode}")
+        os.makedirs(combined_save_dir, exist_ok=True)
+        plt.savefig(f"{combined_save_dir}/slope_summary_combined{title_suffix}_{step_name}.png")
+        plt.close()
+
 # --- Main Execution ---
 script_dir = os.path.dirname(os.path.abspath(__file__))
+
+# Choose attenuation coefficient mode: 'mu' (Linear, mm^-1) or 'mu_m' (Mass, cm^2/g)
+mu_mode = 'mu'
 
 include_0331 = True  # 是否将 0331 数据并入 0.6mm 分析
 # analysis_target: "step" (仅分析阶梯), "ore" (仅分析矿石), "all" (分析全部)
@@ -469,117 +692,14 @@ for f_type in filter_types:
                 perform_comprehensive_analysis(voltage, {"Mixed_Ores": (ore_L_list, ore_H_list)}, f"{base_results_dir}/ores", f"Ore Sample ({f_type})", "Ore ID", {"Mixed_Ores": ore_ids}, color_by_step=True, plot_mode='means', I0=cur_I0,
                                                raw_lims_global=global_raw_ylim, log_lims_global=global_log_ylim)
 
-    # === 绘制所有阶梯的汇总图并保存 ===
-    if analysis_target in ["step", "all"]:
-        max_steps = max(len(t) for t in thicknesses_0429.values())
-        for step_idx in range(max_steps):
-            cu_th = thicknesses_0429['Cu_step'][step_idx] if step_idx < len(thicknesses_0429['Cu_step']) else "N/A"
-            al_th = thicknesses_0429['Al_step'][step_idx] if step_idx < len(thicknesses_0429['Al_step']) else "N/A"
-            step_name = f"{cu_th}mm_CuFe_{al_th}mm_Al"
-            
-            print(f">>> Generating Slope Summary Plot for step: {step_name} [{f_type}] ...")
-            
-            # 为当前 step_idx 提取数据
-            step_storage = {mat: {'v': [], 'mu_l': [], 'mu_h': []} for mat in step_mats.values()}
-            step_mu_vals, step_lh_vals, step_inter_l, step_inter_h, step_diff = [], [], [], [], []
-            
-            for mat in list(step_mats.values()):
-                v_list = global_raw_data[f_type][mat]['v']
-                for i in range(len(v_list)):
-                    v_int = v_list[i]
-                    cur_x = global_raw_data[f_type][mat]['cur_x'][i]
-                    log_l = global_raw_data[f_type][mat]['log_l'][i]
-                    log_h = global_raw_data[f_type][mat]['log_h'][i]
-                    vl = global_raw_data[f_type][mat]['vl'][i]
-                    vh = global_raw_data[f_type][mat]['vh'][i]
-                    
-                    if step_idx < len(cur_x):
-                        t_mm = cur_x[step_idx]
-                        mu_l = log_l[step_idx] / t_mm if vl[step_idx] and t_mm > 0 else np.nan
-                        mu_h = log_h[step_idx] / t_mm if vh[step_idx] and t_mm > 0 else np.nan
-                    else:
-                        mu_l, mu_h = np.nan, np.nan
-                        
-                    step_storage[mat]['v'].append(v_int)
-                    step_storage[mat]['mu_l'].append(mu_l)
-                    step_storage[mat]['mu_h'].append(mu_h)
-                    
-                    if np.isfinite(mu_l): step_mu_vals.append(mu_l)
-                    if np.isfinite(mu_h): step_mu_vals.append(mu_h)
-                    if np.isfinite(mu_l) and np.isfinite(mu_h): step_lh_vals.append(mu_l/mu_h)
-            
-            mats = list(step_mats.values())
-            for i in range(len(mats)):
-                for j in range(i+1, len(mats)):
-                    m1, m2 = mats[i], mats[j]
-                    sl1, sl2 = np.array(step_storage[m1]['mu_l']), np.array(step_storage[m2]['mu_l'])
-                    sh1, sh2 = np.array(step_storage[m1]['mu_h']), np.array(step_storage[m2]['mu_h'])
-                    step_inter_l.extend(sl1[np.isfinite(sl1/sl2)] / sl2[np.isfinite(sl1/sl2)])
-                    step_inter_h.extend(sh1[np.isfinite(sh1/sh2)] / sh2[np.isfinite(sh1/sh2)])
-                    
-                    r1, r2 = sl1 / sh1, sl2 / sh2
-                    diff = np.abs(r1 - r2)
-                    step_diff.extend(diff[np.isfinite(diff)])
-            
-            cur_mu_ylim = get_dynamic_ylim(step_mu_vals)
-            cur_inter_ratio_l_ylim = get_dynamic_ylim(step_inter_l, default=(0, 10.0))
-            cur_inter_ratio_h_ylim = get_dynamic_ylim(step_inter_h, default=(0, 10.0))
-            cur_lh_ratio_ylim = get_dynamic_ylim(step_lh_vals, default=(0, 3.0))
-            cur_lh_abs_diff_ylim = get_dynamic_ylim(step_diff, default=(0, 1.0))
-            
-            fig, axes = plt.subplots(2, 3, figsize=(20, 12))
-            fig.suptitle(fr"Attenuation Slopes ($\mu$) Analysis - {f_type} (Step: {step_name})", fontsize=18)
-            
-            sort_idx = np.argsort(step_storage['Cu_step']['v'])
-            for mat in mats:
-                v = np.array(step_storage[mat]['v'])[sort_idx]
-                ml = np.array(step_storage[mat]['mu_l'])[sort_idx]
-                mh = np.array(step_storage[mat]['mu_h'])[sort_idx]
-                
-                axes[0, 0].plot(v, ml, 'o-', label=mat)
-                axes[0, 1].plot(v, mh, 'o-', label=mat)
-                axes[0, 2].plot(v, ml/mh, 's--', label=f"{mat} L/H")
-            
-            for i in range(len(mats)):
-                for j in range(i+1, len(mats)):
-                    m1, m2 = mats[i], mats[j]
-                    v = np.array(step_storage[m1]['v'])[sort_idx]
-                    r1 = np.array(step_storage[m1]['mu_l'])[sort_idx] / np.array(step_storage[m1]['mu_h'])[sort_idx]
-                    r2 = np.array(step_storage[m2]['mu_l'])[sort_idx] / np.array(step_storage[m2]['mu_h'])[sort_idx]
-                    r_l = np.array(step_storage[m1]['mu_l'])[sort_idx] / np.array(step_storage[m2]['mu_l'])[sort_idx]
-                    r_h = np.array(step_storage[m1]['mu_h'])[sort_idx] / np.array(step_storage[m2]['mu_h'])[sort_idx]
-                    
-                    line_l, = axes[1, 0].plot(v, r_l, 'v-', label=f"{m1}/{m2} (L)")
-                    line_h, = axes[1, 1].plot(v, r_h, '^-', label=f"{m1}/{m2} (H)")
-                    axes[1, 2].plot(v, np.abs(r1 - r2), 'D-.', label=f"|{m1}-{m2}| (L/H)")
+    # === Combined Slope Summary Plotting (Deferred) ===
+    # The step-wise plotting loop has been moved out of the filter loop for combined filter plotting.
+    pass
 
-                    if m1 in mat_physics and m2 in mat_physics:
-                        p1, p2 = mat_physics[m1], mat_physics[m2]
-                        theo_l = ( (p1['Z']**4.5) / p1['Ar'] * p1['rho'] ) / ( (p2['Z']**4.5) / p2['Ar'] * p2['rho'] )
-                        axes[1, 0].axhline(y=theo_l, color=line_l.get_color(), linestyle='--', alpha=0.6, label=f"{m1}/{m2} Theo (PH)")
-                        theo_h = ( p1['Z'] / p1['Ar'] * p1['rho'] ) / ( p2['Z'] / p2['Ar'] * p2['rho'] )
-                        axes[1, 1].axhline(y=theo_h, color=line_h.get_color(), linestyle='--', alpha=0.6, label=f"{m1}/{m2} Theo (C)")
-
-            for ax in axes.flat:
-                ax.set_xlabel("Voltage (kV)"); ax.grid(True); ax.legend(fontsize='x-small')
-                ax.set_xlim(130, 330) # 强制 X 轴对齐
-            
-            axes[0, 0].set_title(r"$\mu_L$ vs Voltage"); axes[0, 0].set_ylim(cur_mu_ylim)
-            axes[0, 1].set_title(r"$\mu_H$ vs Voltage"); axes[0, 1].set_ylim(cur_mu_ylim)
-            axes[0, 2].set_title(r"$\mu_L / \mu_H$ Ratio"); axes[0, 2].set_ylim(cur_lh_ratio_ylim)
-            axes[1, 0].set_title(r"Inter-Material Ratio ($\mu_L$)"); axes[1, 0].set_ylim(cur_inter_ratio_l_ylim)
-            axes[1, 1].set_title(r"Inter-Material Ratio ($\mu_H$)"); axes[1, 1].set_ylim(cur_inter_ratio_h_ylim)
-            axes[1, 2].set_title(r"Inter-Material L/H Abs Diff $|r_1 - r_2|$"); axes[1, 2].set_ylim(cur_lh_abs_diff_ylim)
-
-            plt.tight_layout(rect=[0, 0.03, 1, 0.95])
-            suffix = "_with_0331" if (f_type == '0.6mm' and include_0331) else ""
-            
-            # 保存图片到同一文件夹下，文件名体现不同厚度
-            cur_save_dir = base_results_dir
-            os.makedirs(cur_save_dir, exist_ok=True)
-            plt.savefig(f"{cur_save_dir}/slope_summary_{f_type}{suffix}_{step_name}.png")
-            plt.close()
-
+# --- Combined Slope Summary Plotting ---
+if analysis_target in ["step", "all"]:
+    plot_combined_slope_summaries(global_raw_data, thicknesses_0429, include_0331, mu_mode, mat_physics, step_mats, script_dir)
+ 
 # --- 保存数据到 JSON ---
 if analysis_target in ["step", "all"]:
     print(f"\n>>> Saving all JSON results to step folders...")
@@ -607,10 +727,18 @@ if analysis_target in ["step", "all"]:
                     
                     if step_idx < len(cur_x):
                         t_mm = cur_x[step_idx]
-                        ul = float(log_l[step_idx] / t_mm) if vl[step_idx] and t_mm > 0 else None
-                        uh = float(log_h[step_idx] / t_mm) if vh[step_idx] and t_mm > 0 else None
-                        if ul is not None and not np.isfinite(ul): ul = None
-                        if uh is not None and not np.isfinite(uh): uh = None
+                        if t_mm > 0:
+                            if mu_mode == 'mu_m':
+                                rho = mat_physics[mat]['rho']
+                                ul = float(10.0 * log_l[step_idx] / (t_mm * rho)) if vl[step_idx] else None
+                                uh = float(10.0 * log_h[step_idx] / (t_mm * rho)) if vh[step_idx] else None
+                            else:
+                                ul = float(log_l[step_idx] / t_mm) if vl[step_idx] else None
+                                uh = float(log_h[step_idx] / t_mm) if vh[step_idx] else None
+                            if ul is not None and not np.isfinite(ul): ul = None
+                            if uh is not None and not np.isfinite(uh): uh = None
+                        else:
+                            ul, uh = None, None
                     else:
                         ul, uh = None, None
                         
@@ -620,7 +748,7 @@ if analysis_target in ["step", "all"]:
         cur_save_dir_base = os.path.join(script_dir, f'results/thickness_decoupling/H_L_fit/{out_base}')
         os.makedirs(cur_save_dir_base, exist_ok=True)
         
-        output_json_path = os.path.join(cur_save_dir_base, f'attenuation_slopes_{step_name}.json')
+        output_json_path = os.path.join(cur_save_dir_base, f'attenuation_slopes_{mu_mode}_{step_name}.json')
         with open(output_json_path, 'w', encoding='utf-8') as f:
             json.dump(json_data, f, indent=4, ensure_ascii=False)
 # === 新增：各块矿石的 ul/uh 随电压变化曲线 ===

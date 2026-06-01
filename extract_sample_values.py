@@ -14,7 +14,7 @@ import pandas as pd
 from utils_II import get_bricks, get_bricks_watershed, classify_contour, save_contour_data, warp_straighten
 
 def main():
-    data_dir = r'E:\multi_source_info\data_dir\20260402'
+    # data_dir = r'E:\multi_source_info\data_dir\20260402'
     # data_dir = r'E:\multi_source_info\data_dir\20260331'
     # data_dir = r'E:\multi_source_info\data_dir\20260407_Sample_test'
     roi = [0, 1200, 200, 1336]; all_type = None; align_direct = 'y'
@@ -34,10 +34,13 @@ def main():
     # data_dir = r'E:\multi_source_info\data_dir\20260325_yinshan'; roi = [0, 1625, 200, 1336]
     # all_type = 'ore'; th_val = 140; fy = 0.9909; align_direct = 'x'; reverse_sort = True
 
-    # data_dir = r'E:\multi_source_info\data_dir\20260409_TYM-data\TYM_test'
+    data_dir = r'E:\multi_source_info\data_dir\20260409_TYM-data\TYM_test'
     # data_dir = r'E:\multi_source_info\data_dir\20260409_TYM-data\TYM_converted_results'
-    roi_125 = [960, 1900, 0, -1]; th_val_125 = 160; 
-    roi_270 = [610, 3000, 0, -1]; th_val_270 = 151; 
+    roi_125 = [250, -1, 0, -1]; th_val_125 = 160; 
+    roi_270 = [0, -1, 0, -1]; th_val_270 = 151; 
+
+    # data_dir = r'E:\multi_source_info\data_dir\20260409_TYM-data\TYM_test_2'
+    # roi_125 = [250, 2100, 0, -1]; th_val_125 = 140; 
 
     # Path-specific threshold method: Use BINARY_INV for 0409 TYM-data, otherwise BINARY
     th_type = cv2.THRESH_BINARY_INV if "0409" in data_dir else cv2.THRESH_BINARY
@@ -52,12 +55,16 @@ def main():
         os.makedirs(output_dir)
 
     # Adaptive file discovery: support both .tif (with 'kv') and .png (with 'dual')
-    tif_files = [f for f in os.listdir(data_dir) 
-                 if (f.lower().endswith('.tif') and 'kv' in f.lower()) or 
-                    (f.lower().endswith('.png') and 'dual' in f.lower())]
+    # For 0409 datasets, exclusively read files with the suffix '_cropped.tif'
+    if "0409" in data_dir:
+        tif_files = [f for f in os.listdir(data_dir) if f.lower().endswith('_cropped.tif')]
+    else:
+        tif_files = [f for f in os.listdir(data_dir) 
+                     if (f.lower().endswith('.tif') and 'kv' in f.lower()) or 
+                        (f.lower().endswith('.png') and 'dual' in f.lower())]
     
     if not tif_files:
-        print(f"No valid image files (.tif with 'kV' or .png with 'dual') found in {data_dir}")
+        print(f"No valid image files found in {data_dir} (0409 expects '_cropped.tif', others expect '.tif' containing 'kv' or '.png' containing 'dual')")
         return
 
     all_summaries = []
@@ -200,6 +207,52 @@ def main():
                     # Save the WARPED ROI images with REDINED pixels
                     save_contour_data(output_dir, base_name, label, i, 
                                       save_pixels_low, save_pixels_high, warped_bundle)
+                    
+                    # EXTRACT STEP TRANSITION ZONE (transition.pkl)
+                    if label == 'step_sample':
+                        step_means = meta["step_means"]
+                        if step_means and len(step_means) == 10:
+                            # Higher mean value means thinner step (higher transmission)
+                            if step_means[0] > step_means[9]:
+                                # index 0 is thin, index 9 is thick.
+                                # 3rd mutation boundary is between index 2 and index 3 (0-indexed).
+                                y_boundary = int(3 * (warped_low.shape[0] / 10.0))
+                            else:
+                                # index 9 is thin, index 0 is thick.
+                                # 3rd mutation boundary is between index 7 and index 6 (0-indexed).
+                                y_boundary = int(7 * (warped_low.shape[0] / 10.0))
+                            
+                            y_start = max(0, y_boundary - 5)
+                            y_end = min(warped_low.shape[0], y_boundary + 5)
+                            
+                            # Use 10% horizontal margins to avoid edge artifacts
+                            roi_x1 = int(warped_low.shape[1] * 0.1)
+                            roi_x2 = warped_low.shape[1] - roi_x1
+                            
+                            pixels_low_steep = warped_low[y_start:y_end, roi_x1:roi_x2].flatten()
+                            pixels_high_steep = warped_high[y_start:y_end, roi_x1:roi_x2].flatten()
+                            
+                            # Save to _transition.pkl
+                            steep_output = os.path.join(output_dir, "pixel_values", f"{base_name}_{label}_{i}_transition.pkl")
+                            with open(steep_output, 'wb') as sf:
+                                pickle.dump({
+                                    'pixels_low': pixels_low_steep,
+                                    'pixels_high': pixels_high_steep
+                                }, sf)
+                            print(f"--> Saved transition pixels (+/-5 rows around row {y_boundary}) to {steep_output}")
+
+                            # Draw Transition Box on contoured image (BGR: Red, thickness=2)
+                            box_local_transition = np.array([
+                                [roi_x1, y_start], [roi_x2, y_start], [roi_x2, y_end], [roi_x1, y_end]
+                            ], dtype="float32")
+                            box_global_transition = cv2.perspectiveTransform(box_local_transition.reshape(-1, 1, 2), M_inv).reshape(4, 2)
+                            cv2.polylines(contoured, [box_global_transition.astype(np.int32)], True, (0, 0, 255), 2)
+                            
+                            # Annotate "T3" near the transition boundary
+                            tx, ty = int(box_global_transition[0][0]), int(box_global_transition[0][1])
+                            cv2.putText(contoured, "T3", (tx - 15, ty - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 0, 255), 1)
+
+
                     
                     # 4. Collect data for final summary table
                     entry_base = {

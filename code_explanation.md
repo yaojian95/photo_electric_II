@@ -109,8 +109,8 @@ This workspace focus on validating XRT image quality and extracting standard sam
         - 返回: `label` (类别字符串) 和 `meta` (包含提取的统计像素和边界框信息)。
     - `get_bricks`: Main pipeline for batch feature extraction. Supports configurable thresholding methods (`th_type`) and vertical scaling (`vscale`).
         - 参数 `path`: 图像路径 (str)；`roi`: 感兴趣区域 [y1, y2, x1, x2] (list)；`th_val`: 阈值 (int)；`th_type`: 阈值类型 (cv2)；`fx`/`fy`: 畸变校正系数 (float)；`vscale`: 纵向缩放系数 (float, 默认1.0)；`vscale_interp`: 缩放插值方法 (cv2, 默认INTER_LINEAR)；`reverse_sort`: 是否反转排序结果 (bool, 默认False)。
-    - `get_bricks_watershed`: Enhanced pipeline using Distance Transform and Watershed algorithm. Supports the same scaling parameters as `get_bricks`.
-        - 参数同 `get_bricks`。
+    - `get_bricks_watershed`: Enhanced pipeline using Distance Transform and Watershed algorithm. Supports the same scaling parameters as `get_bricks`。
+        - 参数同 `get_bricks`；并内置了高度拆分阈值的动态自适应逻辑：对于文件名包含 '270us' 的长曝光拉伸图像，其分割判定高度阈值自动设为 `1000` 像素，而普通配置图像（如 125us）默认沿用 `800` 像素的分割上限。
     - `check_step_gradient`: Analyzes row-wise mean gradients using Pearson Correlation and dynamic thresholds.
     - `warp_straighten`: Aligns tilted objects using perspective transforms.
     - `get_10_step_means`: Multi-axis core sampling (80% width, 60% height).
@@ -167,12 +167,14 @@ This workspace focus on validating XRT image quality and extracting standard sam
 ### `extract_sample_values.py`
 - **Purpose**: Batch analysis of standard samples using relative paths.
 - **Workflow**:
-    1. Finds target TIF files in relative data directories.
+    1. Finds target TIF files in relative data directories. (Specifically for 0409 datasets, it selectively and exclusively reads files with the suffix '_cropped.tif' as produced by `crop_TYM.py` to ensure only pre-cropped images are analyzed; other datasets use standard discovery rules).
     2. Synchronized `get_bricks` parameters.
     3. Performs type-specific refined analysis (Disk scaling, Step 10-segmentation).
     4. Outputs categorized results to `results/`.
     5. Visualizes bounding rectangles (`minAreaRect`) used for ROI extraction directly on the output contoured images.
     6. Masks `high_low_images` during extraction to keep only pixels inside the contour, replacing the background with the maximum grayscale value (`255` or `65535`).
+    7. Extracted step sample transition zones (the 3rd thickness mutation boundaries +/- 5 rows, with 10% horizontal margins) and persisted them separately to `_transition.pkl` files for physical boundary transition analysis.
+
 
 ### `extract_0429_RaySov_from_mask.py`
 - **Purpose**: An auxiliary script for the 0429 dataset designed to extract precise pixel values strictly using manually drawn `.png` masks, skipping algorithmic geometric contouring entirely.
@@ -223,21 +225,23 @@ This workspace focus on validating XRT image quality and extracting standard sam
 - **Workflow**:
     1. Loads step-sample data from `results/20260331/pixel_values/` for Cu, Fe, and Al.
     2. Assigns target atomic numbers: Cu=29, Fe=26, Al=13.
-    3. Iteratively fits Ridge regression models for three thickness scenarios (Al 6/8/10 steps) to evaluate how step inclusion- `results/thickness_decoupling/z_decouple/[DATE]/`: Contains output charts and parameter logs for a specific dataset.
-- `results/thickness_decoupling/z_decouple/[DATE]/fitting_parameters.txt`: Centralized log of all regression coefficients.
- in a **5x3 grid**:
+    3. Iteratively fits Ridge regression models for three thickness scenarios (Al 6/8/10 steps) to evaluate how step inclusion impacts model robustness.
+    4. **Visualization Engine**: Evaluates the model accuracy across all thickness levels and voltage configurations.
+    5. **Output**: `results/thickness_decoupling/z_decouple/[DATE]/`: Contains output charts and parameter logs for a specific dataset.
+    6. `results/thickness_decoupling/z_decouple/[DATE]/fitting_parameters.txt`: Centralized log of all regression coefficients.
+    7. **Multi-Model Comparison**: Evaluates three distinct regression strategies (Model 1: Linear Ratio, Model 2: Polynomial DE, Model 3: R-Value Physics-based) in a **5x3 grid**:
         - **Row 0**: Global overview showing separate KDE plots for Model 1, 2, and 3.
         - **Row 1**: Model 1 distribution breakdown per material.
         - **Row 2**: Model 2 distribution breakdown per material.
         - **Row 3**: Model 3 distribution breakdown per material.
         - **Row 4**: Systematic bias analysis (Mean Predicted Z vs Step Index) comparing all three models.
-    5. **Step-Wise Visualization**: KDE plots include granular distributions per thickness level.
-    6. **Mean Bias Analysis**: Row 4 subplots visualize the drift in mean prediction across physical thickness steps for M1, M2, and M3.
-    7. **Model 3 Physics**: Uses the $R$-value formula $R = \ln(I_{0,L}/L + 5) / \ln(I_{0,H}/H + 20)$ for robust feature extraction.
-    8. **Accuracy Summary**: Generates `Z_accuracy_summary_comparison.png` comparing precision (std) of all three models.
-    9. **Parameter Logging**: Automatically archives all fitted coefficients and intercepts to `fitting_parameters.txt` in the timestamped output directory.
-    10. **Data Traceability**: `output_dir` is now dynamically synchronized with the `input_dir` date string to prevent results from being overwritten when testing different datasets.
-    8. **Optimization**: Incorporates `StandardScaler` with unscaling logic for physically accurate formula display.
+    8. **Step-Wise Visualization**: KDE plots include granular distributions per thickness level.
+    9. **Mean Bias Analysis**: Row 4 subplots visualize the drift in mean prediction across physical thickness steps for M1, M2, and M3.
+    10. **Model 3 Physics**: Uses the $R$-value formula $R = \ln(I_{0,L}/L + 5) / \ln(I_{0,H}/H + 20) for robust feature extraction.
+    11. **Accuracy Summary**: Generates `Z_accuracy_summary_comparison.png` comparing precision (std) of all three models.
+    12. **Parameter Logging**: Automatically archives all fitted coefficients and intercepts to `fitting_parameters.txt` in the timestamped output directory.
+    13. **Data Traceability**: `output_dir` is now dynamically synchronized with the `input_dir` date string to prevent results from being overwritten when testing different datasets.
+    14. **Optimization**: Incorporates `StandardScaler` with unscaling logic for physically accurate formula display.
 
 ### `calculate_mu_m.py`
 - **Purpose**: Calculates the mass attenuation coefficient ($\mu_m$) for standard samples (Cu, Fe, Al) using the exponential attenuation law.
@@ -267,9 +271,9 @@ This workspace focus on validating XRT image quality and extracting standard sam
     1. Parses Model 2 parameters from `fitting_parameters.txt` (which tracks the training dataset date).
     2. Uses a decoupled `TEST_DATA_DIR` to allow applying the previously trained model directly to new datasets (e.g., `20260325_yinshan`).
     3. Conditionally constructs file paths (`1_98_position_3_{voltage}_ore_{d_id}`) for Yinshan ore data to dynamically switch between standard disk calibration and real ore validation.
-    3. Loads `disk_grades` from an external JSON config (`E:\multi_source_info\data_dir\disk_grades.json`) based on the test dataset date.
-    4. Predicts Z for up to 114 disks using Low and High energy signals (from both `.pkl` and `.png`).
-    5. Generates robustness statistics (mean, std) by filtering extreme 1% outliers, and plots Predicted Z vs Theoretical $Z_{eff}$ using `plt.scatter` for clear mean-value regression analysis.
+    4. Loads `disk_grades` from an external JSON config (`E:\multi_source_info\data_dir\disk_grades.json`) based on the test dataset date.
+    5. Predicts Z for up to 114 disks using Low and High energy signals (from both `.pkl` and `.png`).
+    6. Generates robustness statistics (mean, std) by filtering extreme 1% outliers, and plots Predicted Z vs Theoretical $Z_{eff}$ using `plt.scatter` for clear mean-value regression analysis.
 
 ### `update_disk_grades_20260325.py`
 - **Purpose**: Automates the extraction of disk assay grades (Cu, Fe, S) from raw data CSVs and updates the centralized `disk_grades.json` configuration file.
@@ -290,6 +294,34 @@ This workspace focus on validating XRT image quality and extracting standard sam
        - **High Exponent**: Mayneord formula with higher power (exp=3.5, z_base=11.0).
        - **Si Base**: Mayneord formula using pure Silicon as gangue (exp=2.94, z_base=14.0).
     3. Generates a 2x2 multi-subplot visualization (`Zeff_Methods_Comparison.png`) to show absolute value trends and relative prediction errors between the models.
+
+
+### `compare_tube.py`
+- **Purpose**: 用于比较不同探测管参数、曝光时间及电压下，阶梯样和矿石特征强度的脚本。现已集成阶梯标样 H-L 曲线与对数衰减的 2x3 深度分析以及质量衰减系数随电压变化的 slope_summary 汇总分析管线。
+- **Functions**:
+    - `load_any_dual_pixels(file_path, flip=False)`:
+        - **核心逻辑**: 加载双能通道的像素值并检测是阶梯标样还是普通材质。若 `flip=True` 则自动执行步进反向反转 `low[::-1]`，用于将 thickest-to-thinnest 排列标样反转为标准的 thinnest-to-thickest 物理厚度轴。
+        - 参数 `file_path`: 阶梯像素数据 pkl 的存储路径 (str)；`flip`: 是否对阶梯排序执行翻转 (bool)。
+    - `find_linear_pts(x_pts, y_pts, label="")`:
+        - **核心逻辑**: 在对数衰减曲线中，从最薄阶梯开始进行多阶拟合，并在 $R^2$ 衰减速率超过阈值时截断，自动定位最长的优秀物理线性衰减段数。
+        - 参数 `x_pts`: 阶梯标样物理厚度数组；`y_pts`: 高/低能对数衰减值；`label`: 调试材质名称。
+    - `perform_comprehensive_analysis(voltage, samples_dict, output_subdir, title_prefix, x_label, x_coords_dict, color_by_step=False, plot_mode='all', I0=204.0, raw_lims_global=None, log_lims_global=None)`:
+        - **核心逻辑**: 绘制通用 2x3 的衰减特征与硬化特性大图。包含 H vs L 均值多项式拟合、Log-Log 拟合、Low/High 能与物理厚度的折线剖析（含 std 误差棒）以及对数衰减在自动线性区间内的斜率拟合，保存为图片。
+        - 参数同 `fit_hl_curve_0429.py` 对应定义。
+    - `generate_dataset_slope_summaries(dataset_name, output_subdir, global_raw_data, thicknesses)`:
+        - **核心逻辑**: 对指定数据集的多电压标样均值进行全厚度提取，计算各阶厚度对应的低能/高能质量衰减系数 $\mu_L$ 和 $\mu_H$、L/H 比值、材质间比值（内嵌 Photoelectric & Compton 物理理论辅助线）以及 L/H 绝对偏差，绘制 10 阶厚度的 2x3 曲线大图并保存。
+        - 参数 `dataset_name`: 数据集标识 (str)；`output_subdir`: 输出物理目录 (str)；`global_raw_data`: 收集的多电压衰减对数汇总字典 (dict)；`thicknesses`: 标样物理厚度坐标字典 (dict)。
+    - `run_stepped_specimen_analysis()`:
+        - **核心逻辑**: 针对 0331 及 0409 标样数据集的 H-L 特征拟合与衰减评估的中央调度总控模块。现已全面升级为统一使用高精度 16-bit 数据源（0407 数据集被注释禁用）。
+        - **工作流**:
+            1. **0331 (yinshan)**: 读取 `20260331_16bit` 像素数据包，处理 `140kV`、`160kV`、`180kV` 的三材质 10 阶数据，采用 `flip=False` 自适应加载。在 $I_0=52428.0$ （16-bit）下计算，并自动调用 `generate_dataset_slope_summaries` 输出 10 张质量衰减随电压的 `slope_summary` 大图。
+            2. **0407 (home) [已注释禁用]**: 原为读取 `20260407_Sample_test_16bit` 像素数据包进行 `160kV` 10 阶数据 2x3 剖析。现已根据用户要求注释，暂不参与 analysis 流程。
+            3. **0409 (TYM)**: 读取 `TYM_test_2_16bit` 像素数据包，使用高精度 16-bit 像素数据遍历 `160kV`、`180kV`、`200kV` 三个电压的 `125us` 曝光序列，标样材质统一映射为 `Al_step=6` (铝阶梯/铝块)、`Cu_step=8` (铜阶梯)、`Fe_step=9` (铁阶梯)。在 $I_0=52428.0$ 下执行 2x3 剖析。自动调用 `generate_dataset_slope_summaries` 输出 10 张质量衰减随电压的 `slope_summary` 大图。
+- **Workflow**:
+    1. 比较不同曝光时间（125us 与 270us）下的阶梯均值 and 直方图分布（使用 `results/TYM_test_16bit/pixel_values/` 路径下的 `step_sample_6`）。
+    2. 对多块矿石在 125us 和 270us 之间的灰度相关性进行散点拟合，并绘制同种矿石分布直方图（选用共同现存的矿石编号 `[0, 1, 3]`）。
+    3. 调用 `run_stepped_specimen_analysis()` 全面评估 0331（三个电压，16-bit）和 0409（三个电压 16-bit，125us，Cu/Fe/Al 精准对齐至统一索引映射 Al=6, Cu=8, Fe=9）的 2x3 物理衰减特征与 20 张 `slope_summary` 汇总大图，并将大图输出至 `results/Tube_comparison/comprehensive_fit/`。
+    4. 比较不同曝光时间下第三个厚度跃迁突变处（transition）的跃迁散射特征，输出跃迁区域的均值对比图 `TYM_Exposure_Steps_Transition_means.png` 和高低能像素分布直方图 `_hist_low.png` / `_hist_high.png`。
 
 
 
@@ -321,14 +353,17 @@ This workspace focus on validating XRT image quality and extracting standard sam
 - **Purpose**: 针对 2026-04-29 实验数据集的综合衰减曲线分析脚本，整合了 0.6mm 与 1.2mm 滤片的对比分析，并支持与 2026-04-01 矿石数据的跨数据集对比。
 - **Configuration Parameters**:
     - `analysis_target`: 控制分析范围。可选值：`"step"` (仅处理阶梯样块), `"ore"` (仅处理矿石样块), `"all"` (处理全部)。
+    - `mu_mode`: 衰减系数计算模式。可选值：`"mu"` (线衰减系数 $\mathrm{mm}^{-1}$，默认) 或是 `"mu_m"` (质量衰减系数 $\mathrm{cm}^2/\mathrm{g}$，厚度转换为厘米并除以材质密度 $\rho$)。
 - **Key Features**:
     - **Global Scaling**: 自动扫描阶梯样块数据以确定统一的横轴(X轴)对齐范围(130kV-330kV)，并为每一个厚度分别计算自适应全局统一 Y 轴，确保跨电压、跨材质、跨滤片的图表具有严格的视觉可比性。
     - **核心流程**：
-  - **动态获取 Y 轴上限**: `get_dynamic_ylim` 会自动根据每个厚度的结果动态放开/收紧坐标限制。
-  - **阶梯厚度遍历循环**：不再使用单一的“拟合斜率”或“指定单层”，而是强制遍历从最薄到最厚（0-9）的所有阶梯层，分别计算各层对应的衰减特性。
-  - **物质比例与差值分析**：计算同种物质的高低能衰减系数比例 ($L/H$) 及不同物质之间的衰减系数比例。
-  - **单块矿石综合衰减特性多通道分析**：在单块矿石对比分析中，进行 $\mu$ 衰减值计算和散点多项式回归时，会应用中央控制的 `< 2560` (16位) / `< 10` (8位) 阈值过滤，并对 `ore_{oid}_comprehensive_analysis.png` 的大标题追加剔除注记；而专门收集来绘制 `ore_{oid}_grayscale_distribution.png` 灰度直方图大图的像素集合则保持为**完全未经过滤的原始像素**，以供完整、真实地反映探测器底噪和死盲元分布状态。
-  - **独立结果归档**：遍历所有厚度后，每层厚度的 $2\times3$ 综合大图 (`slope_summary`) 以及详细参数数据 (`attenuation_slopes.json`) 将会自动保存到统一的文件夹内，并在文件名中体现具体的厚度信息（如 `attenuation_slopes_2mm_CuFe_12mm_Al.json`），实现全厚度数据的直观对比与查阅。
+      - **动态获取 Y 轴上限**: `get_dynamic_ylim` 会自动根据每个厚度的结果动态放开/收紧坐标限制。
+      - **阶梯厚度遍历循环**：不再使用单一的“拟合斜率”或“指定单层”，而是强制遍历从最薄到最厚（0-9）的所有阶梯层，分别计算各层对应的衰减特性。
+      - **物质比例与差值分析**：计算同种物质的高低能衰减系数比例 ($L/H$) 及不同物质之间的衰减系数比例。
+      - **单块矿石综合衰减特性多通道分析**：在单块矿石对比分析中，进行 $\mu$ 衰减值计算和散点多项式回归时，会应用中央控制的 `< 2560` (16位) / `< 10` (8位) 阈值过滤，并对 `ore_{oid}_comprehensive_analysis.png` 的大标题追加剔除注记；而专门收集来绘制 `ore_{oid}_grayscale_distribution.png` 灰度直方图大图的像素集合则保持为**完全未经过滤的原始像素**，以供完整、真实地反映探测器底噪和死盲元分布状态。
+      - **联合阶梯衰减汇总图 (Combined Slope Summary)**: 遍历所有厚度后，调用 `plot_combined_slope_summaries` 函数，将 `0.6mm` (实线 `o-`) 与 `1.2mm` (虚线 `^-`) 的衰减及比值偏差曲线绘制在同一张 2x3 大图内。两滤片共用统一的 Y 轴动态范围以确保严格的物理可比性。材质对的理论比值线仅作为特定颜色的虚点线 (`:`) 绘制一次，以保持图面整洁。汇总图保存至 `combined/slope_summary_{mu_mode}/` 下。
+      - **LaTeX 语法兼容**: 在 `mu_mode = 'mu_m'` (质量衰减系数) 模式下，将 LaTeX 双下标表示法规范化为单层下标（如 `\mu_{m, L}`），彻底避免 Matplotlib LaTeX 编译器在解析多重嵌套下标时抛出解析异常。
+      - **独立 JSON 归档**：各层厚度对应的详细物理衰减 JSON 参数数据仍独立生成，保存为 `attenuation_slopes_{mu_mode}_{step_name}.json` 以实现详细数值的精确查阅。
 
 ### `read_raw.py`
 - **Purpose**: Batch convert 16-bit `.raw` XRT images into `.png` format.
@@ -355,7 +390,44 @@ This workspace focus on validating XRT image quality and extracting standard sam
         - 参数 `img_dir`: 包含待分析PNG图像的目录 (str)。
         - 参数 `save_path`: 图像输出的完整路径 (str, 默认为None, 默认保存在 `img_dir` 内)。
 
+### `crop_TYM.py`
+- **Purpose**: 自动识别并裁剪16位高动态范围双能XRT图像上下部的均匀空载背景区域，仅保留包含标样或矿石有效物理信号的垂直行，从而显著减少图像存储空间并提升后续轮廓分割与特征提取算法的执行效率。
+- **Workflow**:
+    1. 批量遍历扫描指定输入目录下的所有 16 位 `.tif` / `.tiff` 格式的 stacked 图像。
+    2. 对每一行计算像素的标准差以区分本底空气背景与实体样品。
+    3. 利用适配 16-bit 像素范围的标准差阈值（默认 `3000.0`，避开 16 位下 800 - 1500 左右的高频随机探测器本底噪声）定位图像中包含有效样品的起始行与终止行。
+    4. 对获取的上下边界额外外扩安全保留边距 `margin`（默认 50 像素），保障物理样品弱边缘不被误剪。
+    5. 沿着高度方向对原始高动态范围图像进行无损物理裁剪，并将裁剪后的 16 位图片以原生 `uint16` 格式保存至输出文件夹。
+- **Functions**:
+    - `auto_crop_xrt_16bit(input_dir, output_dir, std_threshold=3000.0, margin=50)`:
+        - **核心逻辑**: 对指定文件夹下的 16 位 XRT 图像进行无损空载背景行裁剪，安全外扩 margin 后保存至目标路径。
+        - **参数解释**：
+            - `input_dir` (str): 存放待裁剪原始 16 位 TIF 图片文件夹的物理路径。
+            - `output_dir` (str): 裁剪完毕后图片的目标存储路径（不存在时会自动创建）。
+            - `std_threshold` (float, 默认 `3000.0`): 区分背景与实际样品的行标准差判定阈值。16 位图像的背景行在高动态像素范围（0-65535）下带有 `800 - 1500` 左右的本底噪标准差，因此该阈值应设定在 `2000 - 5000` 之间以实现稳健分割。
+            - `margin` (int, 默认 `50`): 上下边界的外扩安全缓冲裕度（像素行数）。在识别出的有效行外侧各多保留 margin 行像素，防止切除样品的微弱边缘。
 
+### `fill_csv/fill_csv.py`
+- **Purpose**: 用于将化验品位 CSV 数据自动匹配并填入主 Excel 数据表格的特定 Sheet “正面”列及 XRF 编号列的自动化工具。
+- **Functions**:
+    - `fill_assay_grades(excel_path, csv_path, sheet_name='0514氧化铜')`:
+        - **核心逻辑**: 将 `csv_path` 指定的 CSV 文件中的化验数据与 `excel_path` 指定的 Excel 工作簿中的“0514氧化铜” Sheet 进行序号匹配。提取 CSV 中的 `Cu`, `Fe`, `Al`, `Ca`, `S` 化验品位填入 Excel 对应序号的“正面”列（D至H列），并将 CSV 的第二列（测试 #）作为 XRF 测试序号填入 Excel 的“XRF编号”列（C列，第 3 列），完美保留原 Excel 文件的所有公式（平均值公式 `=AVERAGE(...)`）、多 Sheet 结构、格式和列宽设置。
+        - **参数解释**：
+            - `excel_path` (str): 目标 Excel 文件的相对或绝对路径。
+            - `csv_path` (str): 包含源化验品位数据的 CSV 文件路径。
+            - `sheet_name` (str): 目标 Excel 工作表名称，默认为 `'0514氧化铜'`。
+- **Workflow**:
+    1. 使用 pandas 读取源 CSV 数据，并以 `gbk` 编码加载。识别其第 2 列（索引 1）为 XRF 测试序号，第 3 列（索引 2）为矿石序号，并收集 `Cu`, `Fe`, `Al`, `Ca`, `S` 品位值。
+    2. 使用 `openpyxl` 引擎以 `data_only=False` 模式打开目标 Excel 文件以保留单元格公式。
+    3. 遍历 Excel 指定 Sheet（如 `0514氧化铜`）的每一行，将 Column A（第 1 列）的单元格值转换为整数与 CSV 序号匹配。
+    4. 匹配成功后，将 CSV 中的对应品位填入该行的 `D` 到 `H` 列（即第 4 到 8 列，对应正面品位），同时将 CSV 的测试序号填入 `C` 列（第 3 列，XRF编号）。如果某项数据在 CSV 中缺失（NaN），则在 Excel 中写入 `None` 以清空单元格。
+    5. 调用 `wb.save(excel_path)` 写入并保存 Excel 更改。
+
+
+## 2026-05-29
+- **Feature**: Excel Assayer Data & XRF Number Filling.
+    - Created `fill_csv/fill_csv.py` to match ore IDs from CSV (`2026.05.29.csv`) to Excel (`CuO矿石重量.xlsx`) and write target assay grades (`Cu`, `Fe`, `Al`, `Ca`, `S`) into the "正面" (Front) columns and the XRF test numbers into "XRF编号" column (Column C).
+    - Used the `openpyxl` engine with `data_only=False` to fully preserve cell styling, formatting, multi-sheet structures, and existing average calculation formulas (e.g. `=AVERAGE(D5, I5)`).
 
 ## 2026-05-20
 - **Feature**: End-to-End 16-bit Image Processing Pipeline.
@@ -405,4 +477,5 @@ This workspace focus on validating XRT image quality and extracting standard sam
 - Standard Samples: `data/` or relevant relative path.
 
 ## IDE Configuration
-- **MCP Config**: `C:\Users\yaoji\.gemini\antigravity-ide\mcp_config.json` 注册并运行了官方 `@modelcontextprotocol/server-pdf` MCP 服务器（使用 `npx` 自动执行），赋予 AI 助手原生、高性能阅读本地和远程 PDF 文档、解析文本和交互式文档处理的能力。
+- **MCP Config**: `C:\Users\yaoji\.gemini\antigravity-ide\mcp_config.json` 注册并运行了官方 `@modelcontextprotocol/server-pdf` MCP 服务器（使用 `npx` 自动执行），赋予 AI 助手原生、高性能阅读本地和远程 PDF 文档、解析文本 and 交互式文档处理的能力。
+- **Unsandboxed Environment**: 针对默认沙箱环境（UWP AppContainer）无法访问 `D:\` 盘 Anaconda 环境且极易触发 App Execution Alias 导致命令挂起或卡死的问题，成功申请并启用了 `unsandboxed` 的 `cmd.exe` 和 `python` 提权。这使得 AI 助手在执行终端命令时能够脱离沙箱限制，直接使用原生环境执行 `D:\anaconda\python.exe` 及其相关科学计算库，实现 100% 的原生系统速度与瞬时响应。

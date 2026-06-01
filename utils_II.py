@@ -594,8 +594,10 @@ def get_bricks_watershed(path = 'all_unnorm.png', roi = [200, -1, 600, 800], th_
                 x, y, w, h = cv2.boundingRect(c)
                 
                 # Height-based splitting logic requested by user
-                if h > 800:
-                    y_split = y + h // 2
+                h_limit = 1200 if (isinstance(path, str) and "270us" in path) else 800
+                h_low_limit = h_limit if (isinstance(path, str) and "270us" in path) else 600
+                if h > h_limit:
+                    y_split = y + h // 2 - 7
                     # Part 1: Top half
                     mask1 = np.zeros(low.shape, dtype=np.uint8)
                     mask1[y:y_split, x:x+w] = obj_mask[y:y_split, x:x+w]
@@ -607,8 +609,8 @@ def get_bricks_watershed(path = 'all_unnorm.png', roi = [200, -1, 600, 800], th_
                     cnts2, _ = cv2.findContours(mask2, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
                     cnt_filtered.extend([c2 for c2 in cnts2 if cv2.contourArea(c2) > 100])
                     
-                elif 600 < h <= 800:
-                    y_split = y + 429
+                elif h_low_limit < h <= h_limit:
+                    y_split = y + 416
                     # Part 1: First 429 lines
                     mask1 = np.zeros(low.shape, dtype=np.uint8)
                     mask1[y:y_split, x:x+w] = obj_mask[y:y_split, x:x+w]
