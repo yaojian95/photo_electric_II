@@ -75,7 +75,7 @@ def perform_comprehensive_analysis(voltage, samples_dict, output_subdir, title_p
     
     for mat_name, (L_list, H_list) in samples_dict.items():
         cur_x = x_coords_dict[mat_name][:len(L_list)]
-        if 'Al' in mat_name and 'step' in title_prefix.lower(): cur_x = cur_x - 10
+        if 'Al' in mat_name and 'step' in title_prefix.lower() and '0407' not in title_prefix: cur_x = cur_x - 10
         all_x_vals.append(cur_x)
         
         for l, h in zip(L_list, H_list):
@@ -181,8 +181,8 @@ def perform_comprehensive_analysis(voltage, samples_dict, output_subdir, title_p
         else:
             cur_x_vals = np.array(cur_x_raw)
 
-        plot_x = cur_x_vals - 10 if (not is_categorical and 'Al' in mat_name and 'step' in title_prefix.lower()) else cur_x_vals
-        display_label = f"{mat_name}" + (" (t-10mm)" if (not is_categorical and 'Al' in mat_name and 'step' in title_prefix.lower()) else "")
+        plot_x = cur_x_vals - 10 if (not is_categorical and 'Al' in mat_name and 'step' in title_prefix.lower() and '0407' not in title_prefix) else cur_x_vals
+        display_label = f"{mat_name}" + (" (t-10mm)" if (not is_categorical and 'Al' in mat_name and 'step' in title_prefix.lower() and '0407' not in title_prefix) else "")
 
         eb_alpha = 0.3 if plot_mode == 'means' else 0.6
         line, = axes[0, 1].plot(plot_x, step_L_means, 'o-', markersize=5, label=display_label, linewidth=1.5)
@@ -737,6 +737,214 @@ def generate_dataset_slope_summaries(dataset_name, output_subdir, global_raw_dat
         plt.close()
         print(f"Slope summary saved to {save_img_path}")
 
+def plot_dataset_comparison_160kV(compare_data, out_dir, mu_mode='mu'):
+    """
+    Compare attenuation properties across 0331, 0407 test1, and 0409 125us at 160kV.
+    
+    参数类型、含义及用法：
+    - compare_data (dict): 包含三个数据集在 160kV 处的衰减对数均值字典。
+      格式：{dataset_key: {mat_name: {'log_l': ndarray, 'log_h': ndarray, 'vl': ndarray, 'vh': ndarray}}}
+    - out_dir (str): 图像保存的输出目录。
+    - mu_mode (str): 衰减系数模式，'mu' 代表线衰减系数 (Slope, mm^-1)，'mu_m' 代表质量衰减系数 (cm^2/g)。
+    
+    返回值：
+    - None (图片会直接保存到磁盘)
+    """
+    mat_physics = {
+        'Cu_step': {'Z': 29, 'Ar': 63.546, 'rho': 8.96},
+        'Fe_step': {'Z': 26, 'Ar': 55.845, 'rho': 7.87},
+        'Al_step': {'Z': 13, 'Ar': 26.982, 'rho': 2.70}
+    }
+    
+    datasets = ['0331', '0407_test1', '0409_125us']
+    mats = ['Cu_step', 'Fe_step', 'Al_step']
+    t_mm_array = np.arange(2, 22, 2)  # 2, 4, 6, ..., 20mm
+    
+    # Store calculated mu values for plotting
+    plot_data = {ds: {mat: {'mu_l': [], 'mu_h': []} for mat in mats} for ds in datasets}
+    all_mu_vals, all_lh_vals, all_inter_l, all_inter_h, all_diff = [], [], [], [], []
+    
+    for ds in datasets:
+        for mat in mats:
+            d = compare_data[ds][mat]
+            if d['log_l'] is None or d['log_h'] is None:
+                continue
+            log_l = d['log_l']
+            log_h = d['log_h']
+            vl = d['vl']
+            vh = d['vh']
+            
+            mu_l_list = []
+            mu_h_list = []
+            for step_idx in range(10):
+                t_mm = t_mm_array[step_idx]
+                if step_idx < len(log_l):
+                    if mu_mode == 'mu_m':
+                        rho = mat_physics[mat]['rho']
+                        mu_l = 10.0 * log_l[step_idx] / (t_mm * rho) if vl[step_idx] else np.nan
+                        mu_h = 10.0 * log_h[step_idx] / (t_mm * rho) if vh[step_idx] else np.nan
+                    else:
+                        mu_l = log_l[step_idx] / t_mm if vl[step_idx] else np.nan
+                        mu_h = log_h[step_idx] / t_mm if vh[step_idx] else np.nan
+                else:
+                    mu_l, mu_h = np.nan, np.nan
+                
+                mu_l_list.append(mu_l)
+                mu_h_list.append(mu_h)
+                
+                if np.isfinite(mu_l): all_mu_vals.append(mu_l)
+                if np.isfinite(mu_h): all_mu_vals.append(mu_h)
+                if np.isfinite(mu_l) and np.isfinite(mu_h):
+                    all_lh_vals.append(mu_l / np.maximum(mu_h, 1e-9))
+            
+            plot_data[ds][mat]['mu_l'] = np.array(mu_l_list)
+            plot_data[ds][mat]['mu_h'] = np.array(mu_h_list)
+            
+    # For inter-material calculations per dataset
+    inter_data = {ds: {} for ds in datasets}
+    for ds in datasets:
+        for i in range(len(mats)):
+            for j in range(i+1, len(mats)):
+                m1, m2 = mats[i], mats[j]
+                ml1 = plot_data[ds][m1]['mu_l']
+                ml2 = plot_data[ds][m2]['mu_l']
+                mh1 = plot_data[ds][m1]['mu_h']
+                mh2 = plot_data[ds][m2]['mu_h']
+                
+                valid_l = np.isfinite(ml1) & np.isfinite(ml2) & (ml2 != 0)
+                valid_h = np.isfinite(mh1) & np.isfinite(mh2) & (mh2 != 0)
+                
+                r_l = ml1 / np.maximum(ml2, 1e-9)
+                r_h = mh1 / np.maximum(mh2, 1e-9)
+                
+                r1 = ml1 / np.maximum(mh1, 1e-9)
+                r2 = ml2 / np.maximum(mh2, 1e-9)
+                diff = np.abs(r1 - r2)
+                
+                inter_data[ds][(m1, m2)] = {
+                    'r_l': r_l,
+                    'r_h': r_h,
+                    'diff': diff
+                }
+                
+                all_inter_l.extend(r_l[valid_l])
+                all_inter_h.extend(r_h[valid_h])
+                all_diff.extend(diff[np.isfinite(diff)])
+                
+    def get_dynamic_ylim(vals, default=(0, 1.0), pad_ratio=0.1):
+        vals = np.array(vals)
+        vals = vals[np.isfinite(vals)]
+        if len(vals) == 0: return default
+        v_min, v_max = np.percentile(vals, 1), np.percentile(vals, 99)
+        pad = (v_max - v_min) * pad_ratio if v_max > v_min else 0.1
+        return (v_min - pad, v_max + pad)
+        
+    cur_mu_ylim = get_dynamic_ylim(all_mu_vals)
+    cur_lh_ratio_ylim = get_dynamic_ylim(all_lh_vals, default=(0, 3.0))
+    cur_inter_ratio_l_ylim = get_dynamic_ylim(all_inter_l, default=(0, 10.0))
+    cur_inter_ratio_h_ylim = get_dynamic_ylim(all_inter_h, default=(0, 10.0))
+    cur_lh_abs_diff_ylim = get_dynamic_ylim(all_diff, default=(0, 1.0))
+    
+    fig, axes = plt.subplots(2, 3, figsize=(20, 12))
+    
+    if mu_mode == 'mu_m':
+        mu_L_symbol = r"\mu_{m, L}"
+        mu_H_symbol = r"\mu_{m, H}"
+        mu_symbol = r"\mu_m"
+    else:
+        mu_L_symbol = r"\mu_L"
+        mu_H_symbol = r"\mu_H"
+        mu_symbol = r"\mu"
+    mu_desc = "Mass Attenuation" if mu_mode == 'mu_m' else "Linear Attenuation"
+    fig.suptitle(f"{mu_desc} (${mu_symbol}$) Multi-Dataset Comparison at 160kV", fontsize=18)
+    
+    mat_colors = {
+        'Cu_step': '#d62728',
+        'Fe_step': '#1f77b4',
+        'Al_step': '#2ca02c'
+    }
+    
+    pair_colors = {
+        ('Cu_step', 'Fe_step'): '#9467bd',
+        ('Cu_step', 'Al_step'): '#8c564b',
+        ('Fe_step', 'Al_step'): '#e377c2'
+    }
+    
+    def get_pair_color(m1, m2):
+        if (m1, m2) in pair_colors: return pair_colors[(m1, m2)]
+        if (m2, m1) in pair_colors: return pair_colors[(m2, m1)]
+        return '#7f7f7f'
+        
+    ds_styles = {
+        '0331': {'ls': '-', 'marker': 'o', 'label': '0331'},
+        '0407_test1': {'ls': '--', 'marker': 's', 'label': '0407 test1'},
+        '0409_125us': {'ls': ':', 'marker': '^', 'label': '0409 125us'}
+    }
+    
+    # Plot single material subplots
+    for ds in datasets:
+        style = ds_styles[ds]
+        for mat in mats:
+            color = mat_colors[mat]
+            mu_l = plot_data[ds][mat]['mu_l']
+            mu_h = plot_data[ds][mat]['mu_h']
+            
+            axes[0, 0].plot(t_mm_array, mu_l, color=color, ls=style['ls'], marker=style['marker'], label=f"{style['label']} {mat}")
+            axes[0, 1].plot(t_mm_array, mu_h, color=color, ls=style['ls'], marker=style['marker'], label=f"{style['label']} {mat}")
+            axes[0, 2].plot(t_mm_array, mu_l / np.maximum(mu_h, 1e-9), color=color, ls=style['ls'], marker=style['marker'], label=f"{style['label']} {mat} {mu_L_symbol}/{mu_H_symbol}")
+            
+    # Plot inter-material subplots
+    for ds in datasets:
+        style = ds_styles[ds]
+        for i in range(len(mats)):
+            for j in range(i+1, len(mats)):
+                m1, m2 = mats[i], mats[j]
+                color = get_pair_color(m1, m2)
+                r_l = inter_data[ds][(m1, m2)]['r_l']
+                r_h = inter_data[ds][(m1, m2)]['r_h']
+                diff = inter_data[ds][(m1, m2)]['diff']
+                
+                axes[1, 0].plot(t_mm_array, r_l, color=color, ls=style['ls'], marker=style['marker'], label=f"{style['label']} {m1}/{m2} ({mu_L_symbol})")
+                axes[1, 1].plot(t_mm_array, r_h, color=color, ls=style['ls'], marker=style['marker'], label=f"{style['label']} {m1}/{m2} ({mu_H_symbol})")
+                axes[1, 2].plot(t_mm_array, diff, color=color, ls=style['ls'], marker=style['marker'], label=f"{style['label']} |{m1}-{m2}|")
+                
+    # Plot theoretical reference lines once
+    for i in range(len(mats)):
+        for j in range(i+1, len(mats)):
+            m1, m2 = mats[i], mats[j]
+            color = get_pair_color(m1, m2)
+            if m1 in mat_physics and m2 in mat_physics:
+                p1, p2 = mat_physics[m1], mat_physics[m2]
+                if mu_mode == 'mu_m':
+                    theo_l = ( (p1['Z']**4.5) / p1['Ar'] ) / ( (p2['Z']**4.5) / p2['Ar'] )
+                    theo_h = ( p1['Z'] / p1['Ar'] ) / ( p2['Z'] / p2['Ar'] )
+                else:
+                    theo_l = ( (p1['Z']**4.5) / p1['Ar'] * p1['rho'] ) / ( (p2['Z']**4.5) / p2['Ar'] * p2['rho'] )
+                    theo_h = ( p1['Z'] / p1['Ar'] * p1['rho'] ) / ( p2['Z'] / p2['Ar'] * p2['rho'] )
+                
+                axes[1, 0].axhline(y=theo_l, color=color, linestyle=':', alpha=0.8, label=f"{m1}/{m2} Theo (PH)")
+                axes[1, 1].axhline(y=theo_h, color=color, linestyle=':', alpha=0.8, label=f"{m1}/{m2} Theo (C)")
+                
+    for ax in axes.flat:
+        ax.set_xlabel("Thickness (mm)")
+        ax.grid(True, alpha=0.3)
+        ax.legend(fontsize='x-small', loc='upper right')
+        ax.set_xlim(0, 22)
+        
+    mu_unit = r"$\mathrm{cm}^2/\mathrm{g}$" if mu_mode == 'mu_m' else r"$\mathrm{mm}^{-1}$"
+    axes[0, 0].set_title(fr"${mu_L_symbol}$ vs Thickness"); axes[0, 0].set_ylabel(fr"${mu_L_symbol}\ ({mu_unit})$"); axes[0, 0].set_ylim(cur_mu_ylim)
+    axes[0, 1].set_title(fr"${mu_H_symbol}$ vs Thickness"); axes[0, 1].set_ylabel(fr"${mu_H_symbol}\ ({mu_unit})$"); axes[0, 1].set_ylim(cur_mu_ylim)
+    axes[0, 2].set_title(fr"${mu_L_symbol} / {mu_H_symbol}$ Ratio"); axes[0, 2].set_ylim(cur_lh_ratio_ylim)
+    axes[1, 0].set_title(fr"Inter-Material Ratio (${mu_L_symbol}$)"); axes[1, 0].set_ylim(cur_inter_ratio_l_ylim)
+    axes[1, 1].set_title(fr"Inter-Material Ratio (${mu_H_symbol}$)"); axes[1, 1].set_ylim(cur_inter_ratio_h_ylim)
+    axes[1, 2].set_title(fr"Inter-Material ${mu_L_symbol}/{mu_H_symbol}$ Abs Diff"); axes[1, 2].set_ylim(cur_lh_abs_diff_ylim)
+
+    plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+    save_path = os.path.join(out_dir, f"dataset_comparison_160kV_{mu_mode}.png")
+    plt.savefig(save_path)
+    plt.close()
+    print(f"Dataset 160kV comparison slope summary saved to {save_path}")
+
 def run_stepped_specimen_analysis(mu_mode='mu'):
     """
     对 0331、0407 和 0409 三个数据集进行相同的阶梯试样 H-L 曲线及对数衰减综合分析。
@@ -761,9 +969,17 @@ def run_stepped_specimen_analysis(mu_mode='mu'):
         'Al_step': np.arange(12, 32, 2)
     }
     
+    # Initialize 160kV comparison data structure
+    compare_160kv_data = {
+        '0331': {mat: {'log_l': None, 'log_h': None, 'vl': None, 'vh': None} for mat in ['Cu_step', 'Fe_step', 'Al_step']},
+        '0407_test1': {mat: {'log_l': None, 'log_h': None, 'vl': None, 'vh': None} for mat in ['Cu_step', 'Fe_step', 'Al_step']},
+        '0409_125us': {mat: {'log_l': None, 'log_h': None, 'vl': None, 'vh': None} for mat in ['Cu_step', 'Fe_step', 'Al_step']}
+    }
+    
+    I0_16bit = 52428.0
+    
     # 1. 0331 Dataset (Yinshan) - Multi-voltage (140kV, 160kV, 180kV) 16-bit
     print("\n>>> Processing 0331 Dataset (16-bit)...")
-    I0_16bit = 52428.0
     voltages_0331 = ['140kV', '160kV', '180kV']
     input_dir_0331 = 'results/20260331_16bit/pixel_values'
     step_mats_0331 = {0: 'Cu_step', 1: 'Fe_step', 2: 'Al_step'}
@@ -792,6 +1008,15 @@ def run_stepped_specimen_analysis(mu_mode='mu'):
                 global_raw_0331[name]['vl'].append(vl)
                 global_raw_0331[name]['vh'].append(vh)
                 
+                # Collect for 160kV comparison
+                if voltage == '160kV':
+                    compare_160kv_data['0331'][name] = {
+                        'log_l': log_l,
+                        'log_h': log_h,
+                        'vl': vl,
+                        'vh': vh
+                    }
+                
         if step_data:
             perform_comprehensive_analysis(
                 voltage=voltage,
@@ -808,33 +1033,53 @@ def run_stepped_specimen_analysis(mu_mode='mu'):
     print(f"\n>>> Generating 0331 Slope Summary Plots ({mu_mode})...")
     generate_dataset_slope_summaries("0331 (yinshan) (16-bit)", f"{out_dir_base}/0331/slope_summary_{mu_mode}", global_raw_0331, thicknesses_std, mu_mode=mu_mode)
 
-    # 2. 0407 Dataset (Home) - 160kV 16-bit (DISABLED per user request)
-    # print("\n>>> Processing 0407 Dataset (16-bit)...")
-    # runs_0407 = ['test1', 'test2', 'test3']
-    # input_dir_0407 = 'results/20260407_Sample_test_16bit/pixel_values'
-    # 
-    # for run in runs_0407:
-    #     step_data = {}
-    #     step_mapping = {'Cu_step': 1, 'Fe_step': 3}
-    #     if run == 'test1':
-    #         step_mapping['Al_step'] = 5
-    #         
-    #     for name, idx in step_mapping.items():
-    #         p = f'{input_dir_0407}/Sample_160kV_{run}_step_sample_{idx}_data.pkl'
-    #         if os.path.exists(p):
-    #             low, high, _ = load_any_dual_pixels(p, flip=True) # 0407 has flip=True!
-    #             step_data[name] = (low, high)
-    #     if step_data:
-    #         perform_comprehensive_analysis(
-    #             voltage=f"160kV_{run}",
-    #             samples_dict=step_data,
-    #             output_subdir=f"{out_dir_base}/0407",
-    #             title_prefix=f"0407 (home) Step {run} (16-bit)",
-    #             x_label="Thickness (mm)",
-    #             x_coords_dict=thicknesses_std,
-    #             plot_mode='all',
-    #             I0=I0_16bit
-    #         )
+    # 2. 0407 Dataset (Home) - 160kV 16-bit
+    print("\n>>> Processing 0407 Dataset (16-bit)...")
+    runs_0407 = ['test1', 'test2', 'test3']
+    input_dir_0407 = 'results/20260407_Sample_test_16bit/pixel_values'
+    
+    # 0407 thicknesses coordinate dictionary (Al_step has no 10mm block, so thickness is 2-20mm)
+    thicknesses_0407 = {
+        'Cu_step': np.arange(2, 22, 2),
+        'Fe_step': np.arange(2, 22, 2),
+        'Al_step': np.arange(2, 22, 2)
+    }
+    
+    for run in runs_0407:
+        step_data = {}
+        step_mapping = {'Cu_step': 1, 'Fe_step': 3}
+        if run == 'test1':
+            step_mapping['Al_step'] = 5
+            
+        for name, idx in step_mapping.items():
+            p = f'{input_dir_0407}/Sample_160kV_{run}_step_sample_{idx}_data.pkl'
+            if os.path.exists(p):
+                low, high, _ = load_any_dual_pixels(p, flip=True) # 0407 has flip=True!
+                step_data[name] = (low, high)
+                
+                # If run is test1, collect 160kV comparison data
+                if run == 'test1':
+                    log_l = np.array([np.mean(np.log(I0_16bit / np.maximum(px, 1.0))) for px in low])
+                    log_h = np.array([np.mean(np.log(I0_16bit / np.maximum(px, 1.0))) for px in high])
+                    vl, vh = np.isfinite(log_l), np.isfinite(log_h)
+                    compare_160kv_data['0407_test1'][name] = {
+                        'log_l': log_l,
+                        'log_h': log_h,
+                        'vl': vl,
+                        'vh': vh
+                    }
+                    
+        if step_data:
+            perform_comprehensive_analysis(
+                voltage=f"160kV_{run}",
+                samples_dict=step_data,
+                output_subdir=f"{out_dir_base}/0407",
+                title_prefix=f"0407 (home) Step {run} (16-bit)",
+                x_label="Thickness (mm)",
+                x_coords_dict=thicknesses_0407,
+                plot_mode='all',
+                I0=I0_16bit
+            )
 
     # 3. 0409 Dataset (TYM) - Multi-voltage (160kV, 180kV, 200kV) 125us 16-bit (cropped)
     print("\n>>> Processing 0409 Dataset (160kV, 180kV, 200kV 125us 16-bit cropped)...")
@@ -877,6 +1122,15 @@ def run_stepped_specimen_analysis(mu_mode='mu'):
                 global_raw_0409[name]['vl'].append(vl)
                 global_raw_0409[name]['vh'].append(vh)
                 
+                # Collect for 160kV comparison
+                if voltage == '160kV':
+                    compare_160kv_data['0409_125us'][name] = {
+                        'log_l': log_l,
+                        'log_h': log_h,
+                        'vl': vl,
+                        'vh': vh
+                    }
+                
         if step_data:
             perform_comprehensive_analysis(
                 voltage=f"{voltage}_125us",
@@ -892,6 +1146,10 @@ def run_stepped_specimen_analysis(mu_mode='mu'):
     # 绘制 0409 的 slope_summary
     print(f"\n>>> Generating 0409 Slope Summary Plots ({mu_mode})...")
     generate_dataset_slope_summaries("0409 (TYM) 125us", f"{out_dir_base}/0409/slope_summary_{mu_mode}", global_raw_0409, thicknesses_std, mu_mode=mu_mode)
+
+    # 4. 比较 0331、0407 test1 与 0409 125us 在 160kV 处的 slope_summary
+    print("\n>>> Plotting Multi-Dataset Comparison at 160kV...")
+    plot_dataset_comparison_160kV(compare_160kv_data, 'results/Tube_comparison', mu_mode=mu_mode)
 
 def main():
     # Setup plotting aesthetics for Chinese text

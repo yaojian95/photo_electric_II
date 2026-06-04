@@ -1,3 +1,62 @@
+## 2026-06-04
+- **Execution & Local Verification**: 在本地 Anaconda Python 环境下运行并验证了 [reconstruct_spectrum.py](file:///e:/photo_electric_II/reconstruct_spectrum.py)。生成了 5 组不同铜铁最大厚度配置（`1`、`3`、`5`、`7`、`10` 个厚度阶梯，同时固定铝为全部 10 个厚度）在 7 个电压（200kV-320kV）及 2 种滤片（0.6mm, 1.2mm）下的全部能谱反演和 APD/ACD 线性度分析结果，成功输出至各自对应的结果文件夹中。
+- **Multi-Thickness-Step Configuration Evaluation**: 针对铜、铁重衰减材质在后半段大厚度阶梯（第 5 级及以后）因高吸收导致探测器穿透不足、数据噪点增大的实验事实，重构了能谱反演脚本 [reconstruct_spectrum.py](file:///e:/photo_electric_II/reconstruct_spectrum.py)。
+    - **函数参数升级**：为 [load_transmission_data](file:///e:/photo_electric_II/reconstruct_spectrum.py#L86-L167) 引入了新输入参数 `cu_fe_max_steps`（整型，默认值 10），并在函数文档字符串中详细注解了该参数的物理含义和用法类型，用来限制重金属标样的加载步数。
+    - **主控制流遍历与独立目录归档**：主函数 `main()` 增加了一层外循环，强制固定铝标样使用全部 10 个厚度，而循环遍历铜、铁阶梯取 `[1, 3, 5, 7, 10]` 个不同最大厚度的实验结果。生成的全部能谱曲线图、线性拟合图和参数 JSON 归档文件分别以 `CuFe_1steps` 到 `CuFe_10steps` 独立文件夹进行存储，独立保存结果。
+- **Method 2 Separate Plotting**: 应用户要求，在 [reconstruct_spectrum.py](file:///e:/photo_electric_II/reconstruct_spectrum.py) 的主程序中独立生成并输出了方法二（相邻差值映射法）的专属能谱图和 $apd$/$acd$ 线性度散点拟合图。
+    - 能谱图保存为 `reconstructed_spectra_method2_{f_type}.png`，只包含方法二的各电压低高能能谱曲线。
+    - 线性度图保存为 `apd_acd_linearity_method2_{f_type}_{voltage}.png`，展示了方法二解算特征的物理厚度线性度，并绘制了过原点的线性拟合对比基准线。
+    - **方法二比对隔离**：在主对比图 `apd_acd_linearity_{f_type}_{voltage}.png` 中移除了方法二曲线（`Spectrum NL M2`）。这避免了方法二过大的偏差拉伸 Y 轴刻度，从而让方法一、静态单能、动态单能的线性对比细节更清晰。
+- **Method 2 Evaluation & Documentation**: 对基于厚度差值映射的能谱反推方法（Method 2）进行了全面的物理与数学可行性评估。编写了独立诊断脚本 `evaluate_spectra.py` 提取并计算了 7 个电压（200kV - 320kV）与 2 种滤片（0.6mm, 1.2mm）配置下各材质厚度级 APD/ACD 的 $R^2$ 线性度。评估显示，Method 2 由于受阶梯内部严重能谱硬化过滤的影响，重建能谱表现出严重的高能偏置（200kV下有效低能达 103.8 keV），从而导致解算 APD/ACD 线性度退化为严重负值（$R^2 \approx -48.0$），证明其物理不可行性；而方法一（正则化 NNLS）能重建真实的入射能谱（200kV下 LE $E_{eff} \approx 65.0$ keV），实现优秀的线性度。并在 [notes_spectrum_reconstruction.md](file:///e:/photo_electric_II/paper/notes_spectrum_reconstruction.md) 中补充了方法二的数学原理、物理成因分析与定量对比数据。
+- **Documentation & Physical Derivation for Spectrum Reconstruction**: 编写并新建了详细的数学与物理原理文档 [notes_spectrum_reconstruction.md](file:///e:/photo_electric_II/paper/notes_spectrum_reconstruction.md)，详尽推导并解释了利用标样阶梯在不同厚度下的吸收差异，构建前向矩阵，并通过增广正则化非负最小二乘（NNLS）求解 X 射线出射能谱 $S(E)$ 的完整数学过程，以及如何将重构出的谱应用于解耦能谱硬化的 APD/ACD 特征求解。
+- **Refactor & Image Format Transition**: 将 [read_raw.py](file:///e:/photo_electric_II/read_raw.py) 重构为可同时兼容读取和转换 `.txt` 与 `.raw` 格式图像文件。
+    - **双格式自适应解析与中文参数注释**：设计并重构了核心转换逻辑函数 `convert_txt_and_raw_to_png`，移除了对硬编码宽高的单向依赖。同步解释并补充了详尽的中英文多维度参数（入参类型、含义、用法）物理设计文档，严格遵守代码规范。
+    - **递归遍历子目录**：使用 `os.walk` 替换原本的 `glob.glob`，实现自动遍历 `source_dir` 下的所有子文件夹，并在目标文件夹 `dest_dir` 中镜像生成相同的子目录结构，且能够自动跳过已转换的输出文件夹，防止产生死循环或冗余转换。
+    - **文件名关键字过滤**：新增了可变参数 `filter_keyword`（默认值为 `"校准后"`），在转换时自动过滤文件名，仅对名字中含有该关键字的图像文件进行转换。
+    - **目标路径自动拼接**：设定 `dest_dir` 默认值为 `None`，若用户未指定则自动在 `source_dir` 后拼接 `converted_pngs`。
+    - **多格式流式读取与智能尺寸推断**：
+        - 对于文本 `.txt` 文件：使用 `np.loadtxt` 加载，**天然保持原本矩阵的二维 shape**（依靠换行符自动解析）。
+        - 对于二进制 `.raw` 文件：因为二进制流是一维的，无法直接保留原本 shape，必须通过 `reshape` 还原为 2D。为了减少人工输入，新增了**从文件名自动正则匹配解析宽高尺寸**的逻辑（如文件名中包含 `1024_1024` 或 `2048_512`）；若文件名未包含尺寸，则 fallback 使用默认传入的参数 `width` 和 `height` 进行 `reshape`。
+    - **无损 PNG 转换与路径容错**：采用 `cv2.imencode` 统一无损转换为 16-bit PNG 图像并保存，完美解决 Windows 平台下的中文路径支持。
+
+
+## 2026-06-03
+- **Feature & X-ray Spectrum Reconstruction**: 编写并新建了能谱反推与物理特征计算脚本 [reconstruct_spectrum.py](file:///e:/photo_electric_II/reconstruct_spectrum.py)。该脚本能够利用 0429 阶梯标样在不同厚度下的吸收差异，结合 NIST 数据库的质量衰减系数，建立正向传输方程；采用带二阶差分平滑约束、归一化约束及能量边界归零约束的非负最小二乘 (NNLS) 算法，高精度反演重建出低能通道 $S_L(E)$ 和高能通道 $S_H(E)$ 的出射 X 射线能谱。
+- **Effective Energy Calculation**: 实现了基于能谱积分的入射有效能量 $E_{eff}$ 计算。输出并保存了各电压和滤片配置下的等效单能值至 `results/thickness_decoupling/energy_hardening/spectrum_reconstruction/reconstructed_spectra_summary.json`，并自动生成了有效能量随管电压的变化折线图。
+- **Spectrum-Integrated APD/ACD calculation**:
+    - **动态等效单能法**: 使用反推得到的入射有效能量 $E_{eff}$ 代替固定的 $58/105\text{ keV}$ 静态常数，使 APD/ACD 特征计算自适应管电压变化。
+    - **全谱非线性积分法**: 直接以连续能谱为积分核，通过二元 Newton-Raphson 算法 (scipy.optimize.root) 数值求解 Alvarez-Macovski 积分方程组，反解出不受能谱硬化扭曲的 APD/ACD 特征。
+    - **线性度对比评估**: 对三种方法在 Al, Fe, Cu 阶梯上的 $apd$/$acd$ 厚度线性度 ($R^2$) 进行对比诊断，自动绘制并保存对比折线图。
+- **Feature**: 编写并新建了双自变量输入能谱硬化拟合脚本 [fit_dual_variable_hardening.py](file:///e:/photo_electric_II/fit_dual_variable_hardening.py)，该脚本能够利用 0429 实验数据集的高精度 16 位阶梯标样实测衰减值，结合 NIST 质量衰减系数逆插值反算出对应各个厚度层的等效能量因变量，并在此基础上成功构建了**物理启发式（自变量为 $H, H^2, L/H$）**和**通用二元多项式（自变量为 $H, L, H^2, L^2, H \cdot L$）**两种能谱硬化预测模型。模型在排除极端外推点后运行多元最小二乘回归，输出精确的系数总结 JSON 并自动渲染 2x2 多维拟合效果对比诊断图。
+- **Thickness-dependent Energy Hardening Analysis**: 在 `analyze_energy_hardening.py` 中新增 `plot_energy_by_thickness_vs_voltage` 绘图子模块。对每个厚度阶梯（共 10 阶）分别独立生成一张 1x2 对比图并保存为 `energy_vs_voltage_step{step_idx + 1}_{thicknesses}.png`（左图为 0.6mm，右图为 1.2mm，子图内同时画出铜、铁、铝三材质在该厚度下的 Low/High 能等效能量随电压变化的曲线，布局与 `plot_eavg_summary` 严格一致）。优化了 `analyze_hardening` 中的内存管理逻辑，有效规避了 MemoryError。
+- **Calibration Fit Curve Overlay Plots**: 在 `get_apd_acd.py` 中新增了 `_plot_calibration_fit` 绘图子模块，实现了对系统校准中 $\ln(a_p/a_c) \to \ln(Z)$ 空间内回归直线与各单质（Al, Fe, Cu）理论输入点、测量预测点及其残差和相对误差的直接可视化对比（保存为 `sirz_calibration_fit.png`），使用户能够最直观地看到拟合误差的产生形态。
+- **Multi-Step Trend Plots & Subplot Title Formulas**: 针对第一、三、五个厚度阶梯单独求解的物理特性，在 `get_apd_acd.py` 的 `run_step_apd_acd_analysis` 中实现了分别收集并绘制这三个特定阶梯电压依赖大图（`summary_coefficients_step1/3/5.png`）的逻辑。并在绘图子模块 `_plot_coefficient_dependence` 中，在 $Z_e$ 和 $\rho_e$ 的子图标题（subplot title）中分别清晰标注了物理重构公式（$Z_e = g \cdot (a_p/a_c)^{1/\nu}$ 与 $\rho_e = K_1 \cdot a_c$），方便进行直观的对比与诊断。
+- **Calibration Update (Direct Thickness Division)**: 在 [get_apd_acd.py](file:///e:/photo_electric_II/get_apd_acd.py) 中，将系统校准时提取 Bulk 系数 $a_p, a_c$ 的逻辑由“多厚度阶梯线性斜率拟合”升级为“基于特定阶梯的直接厚度除法求解”。新增对第一、三、五个较薄阶梯（索引 0, 2, 4）分别运行系统校准 `(K1, g, nu)` 的功能并于控制台和 JSON 统计中进行输出对比。默认将受能谱硬化扭曲最小的“第一阶梯”校准参数作为后续物理量重构的基准。同步在 [notes_calibration_wedge.md](file:///e:/photo_electric_II/paper/notes_calibration_wedge.md) 中更新了第二阶段物理公式描述。
+- **Plot & Theory Line Overlay**: 针对双能物理特征解算中有效原子序数（Ze）在 Fe (Z=26) 和 Cu (Z=29) 之间的倒置现象（此倒置由多色射线通过强衰减铜介质时的严重硬化漂移导致，已通过直接对比 LE 通道对数衰减均值排除了样品读写反置的可能性），在 `get_apd_acd.py` 的 `_plot_detailed_profiling` 和 `_plot_coefficient_dependence` 中绘制并标注了各金属单质（Al, Fe, Cu）的原子序数理论值（13.0, 26.0, 29.0）和理论电子密度值（1.3008, 3.6644, 4.0888 moles-e/cm³）水平参考线，使用户能清晰对比测量校准曲线与理论靶值的物理偏差。
+- **Documentation & System Coefficient Calibration Guide**: 基于三明治探测器的有效单能近似物理框架，设计并撰写了铜、铝、铁阶梯标样下的系统物理系数（电子密度常数 $K_1$、原子序数常数 $g$ 与 $\nu$）校准流程，保存在 `paper/notes_calibration_wedge.md`。
+    - **理论值推导**：归纳了高纯单质金属（Al, Fe, Cu）的等效原子序数理论值（分别为 13, 26, 29）与基于质量密度的物理电子密度 $\rho_e$ 理论值（分别为 1.3008, 3.6644, 4.0888 moles-e/cm³）。
+    - **数学回归建模**：设计了三步校准数学模型，首先使用最小二乘斜率拟合排除厚度 $d$ 的影响提取各材质 Bulk 物理衰减系数 $a_p, a_c$；接着通过无截距最小二乘求解电子密度常数 $K_1$；最后通过对数线性化直线回归 $\ln(Z) = \ln(g) + \frac{1}{\nu}\ln(R)$ 求解原子序数常数 $g$ 和 $\nu$。
+    - **Python 自动化校准脚本**：编写并集成了完整的 Python 校准工具代码，支持 16-bit 像素去噪清洗、APD/ACD 算子计算、厚度斜率拟合与跨材质系数对数线性回归。
+    - **无量纲化去 E0 升级**：去除了原代码和校准文档中多余的参考能量参数 $E_0$，将光电截面直接改写为无量纲的 $E_L^{-3}$ 和 $E_H^{-3}$ 格式，使公式在物理表示和数值计算中更简洁直观。
+
+## 2026-06-02
+- **Documentation & Sandwich Detector Paper Reading Report**: 阅读了学术论文 `用于双能X射线成像中材料识别与对比度消除的三明治探测器的设计与制造.pdf` (Rimcy Palakkappilly Alikunju et al., J. Appl. Phys. 2024)，并在 `paper/notes_sandwich_detector.md` 中撰写了详尽的学术阅读报告。
+    - **探测器构造与几何**：详细整理并用 Mermaid 流程图绘制了该单次曝光三明治探测器的微观物理多层结构（CsI 闪烁体、CMOS 先进像素传感器、中间铜滤片、光纤面板等），归纳了其各层材料的参数考量。
+    - **解耦与对比度消除算法**：系统梳理了基于 Alvarez-Macovski 的系统无关原子序数与电子密度计算公式，以及 Lehmann 等人的双基质线性分解与对比度消除投影偏置角（$\phi$）数学推导。
+    - **结果分析**：总结了在 RQA5 能谱品质下对中间铜滤片厚度（0, 0.25, 0.5 mm）的最优化 $\chi^2$ 偏差测试和实物对比度消除 SNR 卡限（Rose 准则，SNR $\ge 5$）实验结果，指出 0.25 mm 铜滤片在消除背景杂乱基质（鸡肉瘦肉与脂肪）中对于骨骼和钙化靶的卓越呈现效果。
+
+## 2026-06-01
+- **Feature & Multi-Dataset Comparison & 0407 Re-enablement**: 在 `compare_tube.py` 中重构并重新启用了历史 16-bit 阶梯标样数据集 `0407 (Home)`，并实现了多数据集在 `160kV` 管电压下衰减特性的联合对比分析。
+    - **重新启用 0407 数据集**：在中央调度函数 `run_stepped_specimen_analysis` 中移除了对 `0407` 的注释禁用，支持对 `test1`、`test2` 和 `test3` 运行的 160kV 标样像素数据进行 2x3 剖析渲染，并将图像输出保存到 `results/Tube_comparison/comprehensive_fit/0407/`。
+    - **物理厚度坐标对齐修正**：由于 0407 的 Al 标样没有 10mm 底座垫块（厚度直接为 2-20mm），在 `perform_comprehensive_analysis` 中通过新增 title 前缀的字符串判定逻辑，自适应跳过对其减去 10mm 偏置的计算；而在 0331/0409 数据集上则保留减去 10mm 偏置，从而使所有数据集的 Al 标样能完美、正确地对齐到统一的 2-20mm 物理厚度 X 轴上。
+    - **160kV 跨数据集联合对比**：在顶层新增了 `plot_dataset_comparison_160kV` 绘图函数，详细定义并解释了输入参数类型、含义与用法。该函数收集 `0331`、`0407 test1` 和 `0409 125us` 在 160kV 处的衰减对数均值，在统一物理厚度轴上绘制 2x3 联合对比图（包含 $\mu_L$、$\mu_H$、比值、材质间比值与差值）。
+    - **物理理论参考比值线绘制**：在材质间比值子图内以 dotted 形式分别绘制了 Photoelectric (PH) 和 Compton (C) 理论参考比值线。为了保持图面整洁度，设计了仅绘制一次的逻辑，完美杜绝了多数据集叠加绘制时的参考线重叠冗余。
+    - **多衰减模式支持与 Latex 兼容**：新对比分析和 0407 各 run 的剖析图完美支持 `mu_mode` 在 `'mu'` (线衰减) 与 `'mu_m'` (质量衰减) 之间的切换。对质量衰减模式下 LaTeX 图表符号使用单下标（如 `\mu_{m, L}`、`\mu_{m, H}`）进行了规范，完全规避了 Matplotlib 下的 LaTeX 解析崩溃。
+- **Documentation & Paper Reading Report**: 阅读了学术论文 `利用双能计算机断层扫描实现材料表征的系统无关性方法.pdf` (Stephen G. Azevedo et al., IEEE TNS 2016)，并在 `paper/notes.md` 中撰写了学术阅读报告，并补充了对数衰减投影（$P_L, P_H$）在单色与多色连续谱下的严格物理定义、实验观测灰度（$I, I_0$）的物理映射与正向方程推导。
+    - **原理介绍**：深入分析了经典双能特征空间的局限性，对比了 Mayneord 经验有效原子序数（$Z_{eff}$）与物理电子截面决定的系统无关有效原子序数（$Z_e$），详细阐述了 Alvarez-Macovski 光电-康普顿散射双能分解原理、电子密度（$\rho_e$）定义以及 $Z_e$ 的最小二乘优化模型。
+    - **实验方法**：整理了其两台工业级 DECT 扫描系统（HE 与 TB，配备 Thales Flashscan 33 与 PerkinElmer XRD 1620 探测器）的配置、5 种能谱与滤片组合设计（HE100/160、TB100/160、TB80/125、TB125/200、TB80/200），以及标样（石墨、水、镁、硅）、非均匀块体、高原子序数 RbBr 溶液的验证实验。详细梳理了利用 MCNP6 蒙特卡洛软件建立的探测器能谱响应模型，以及基于 Newton-Raphson 约束优化的正向分解算法。
+    - **实验结果**：总结了 Ratio、YNC 与 SIRZ 三种方法的精度与准确度对比，指出 SIRZ 在低能谱变化敏感性（精度 $<2\%$，准确度 $<3\%$）上的显著优势，以及在 RbBr 溶液外推界限上的物理鲁棒性。
+
 ## 2026-05-29
 - **Feature & Excel Assayer Filling**: 在 `fill_csv/fill_csv.py` 中实现了 CSV 数据与 Excel 表格的序号对齐、化验品位与 XRF 测试序号自动填充逻辑。
     - **序号与元素及测试号匹配**：从 `2026.05.29.csv` 中提取矿石序号（第 3 列，索引为 2）与化验品位（`Cu`, `Fe`, `Al`, `Ca`, `S`），同时提取测试序号（第 2 列，索引为 1，“测试 #”），并与 `CuO矿石重量.xlsx` 的 “0514氧化铜” 工作表中的第 1 列（A列，“序号”）进行精确整数匹配。

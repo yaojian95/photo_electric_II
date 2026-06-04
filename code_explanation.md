@@ -265,6 +265,60 @@ This workspace focus on validating XRT image quality and extracting standard sam
     2. 利用 NIST 逆插值将 $\mu_m$ 转换为能量 $E$。
     3. 拟合硬化趋势线并保存 `hardening_summary.json` 与对比图。
     
+### `reconstruct_spectrum.py`
+- **Purpose**: 从阶梯样在不同厚度下的吸收差异反推出射 X 射线低能/高能通道有效能谱，支持方法一（正则化增广 NNLS）与方法二（相邻差值映射法），并利用重建谱求解 $apd$ 与 $acd$ 物理特征以解耦能谱硬化。
+- **Functions**:
+    - `fkn(E_keV)`:
+        - **核心逻辑**: 计算并返回给定能量下的无量纲 Klein-Nishina 康普顿散射截面系数。
+        - **参数解释**: `E_keV` (float 或 np.ndarray)：光子能量，单位 keV。
+    - `get_linear_attenuation(element_symbol, energies_keV, density)`:
+        - **核心逻辑**: 从 NIST 数据库插值质量衰减系数 $\mu/\rho$，并乘以密度获取各能量的线衰减系数 $\mu$ ($cm^{-1}$)。
+        - **参数解释**: 
+            - `element_symbol` (str): 材质化学符号（'Al', 'Fe', 'Cu'）。
+            - `energies_keV` (np.ndarray): 能量网格数组，单位 keV。
+            - `density` (float): 材质密度，单位 $g/cm^3$。
+    - `load_transmission_data(f_type, voltage, data_dir, I0=52428.0, cu_fe_max_steps=10)`:
+        - **核心逻辑**: 载入对应滤片与电压下的阶梯样 pkl 灰度值，过滤死像素或饱和区，计算低能与高能通道的实测透射率 $T = I/I_0$。可通过限制重材质（Cu, Fe）的最高阶梯数来规避厚端穿透不足的噪声数据影响。
+        - **参数解释**:
+            - `f_type` (str): 滤片厚度描述字符串（如 '0.6mm', '1.2mm'）。
+            - `voltage` (str): 管电压描述字符串（如 '200kV'）。
+            - `data_dir` (str): pkl 数据包所在的存储物理目录。
+            - `I0` (float): 空载入射背景对数灰度参考值，默认 16 位下为 52428.0。
+            - `cu_fe_max_steps` (int): 限制铜、铁阶梯加载的最大层数（默认 10 层，可设为 1, 3, 5, 7 等以规避探测器透不过的厚端）。
+    - `build_system_matrix(materials, thicknesses_cm, energies_keV)`:
+        - **核心逻辑**: 构造能谱离散前向投影的系统映射矩阵 $\mathbf{A}$，使得 $\mathbf{A} \mathbf{S} \approx \mathbf{T}$。
+        - **参数解释**:
+            - `materials` (list of str): 每个测量阶梯对应的材料列表（如 `['Al', ..., 'Cu']`）。
+            - `thicknesses_cm` (np.ndarray): 每个测量阶梯的实际物理厚度，单位 cm。
+            - `energies_keV` (np.ndarray): 离散重建能谱的能量仓中心坐标数组，单位 keV。
+    - `reconstruct_channel_spectrum(A, T, energies_keV, lambda_val=0.005, gamma=20.0, beta=10.0)`:
+        - **核心逻辑**: 【方法一】使用增广正则化非负最小二乘 (NNLS) 求解单通道归一化有效出射谱。结合二阶差分平滑约束 $\lambda$，归一化约束 $\gamma$，以及低能与高能截止边界归零约束 $\beta$。
+        - **参数解释**:
+            - `A` (np.ndarray): 系统的正向透射投影矩阵，大小 (N, M)。
+            - `T` (np.ndarray): 实测透射率向量，大小 (N,)。
+            - `energies_keV` (np.ndarray): 重建能量网格数组。
+            - `lambda_val` (float): 二阶差分平滑正则化惩罚因子。
+            - `gamma` (float): 强迫能谱总和等于 1 的归一化约束权重。
+            - `beta` (float): 强迫两端截止点强度归零的边界权重。
+    - `reconstruct_channel_spectrum_method2(step_info_list, energies_keV, voltage_kv, channel='low')`:
+        - **核心逻辑**: 【方法二】基于相邻阶梯透射率差值 $\Delta T_j = T_j - T_{j+1}$ 映射到其敏感带通峰值能量 $E^*_j = \mu^{-1}(\ln(d_{j+1}/d_j)/(d_{j+1}-d_j))$ 的能谱估算与 PCHIP 插值归一化算法。
+        - **参数解释**:
+            - `step_info_list` (list of dict): 各阶梯的物理信息与测量透射率明细字典列表。
+            - `energies_keV` (np.ndarray): 重建能谱的目标能量网格数组。
+            - `voltage_kv` (float): 射线管的最大管电压（能量仓上限），单位 kV。
+            - `channel` (str): 电能通道，可选 `'low'` 或 `'high'`。
+    - `calculate_apd_acd_mono(T_L, T_H, E_L, E_H)`:
+        - **核心逻辑**: 基于经典的低/高双单色能量 $E_L, E_H$ 方程组，采用代数方法直接解算 APD 与 ACD 特征。
+        - **参数解释**:
+            - `T_L`, `T_H` (float 或 np.ndarray): 实测的低能与高能通道透射率。
+            - `E_L`, `E_H` (float): 设定的低能与高能等效单能点，单位 keV。
+    - `solve_apd_acd_nonlinear(T_L, T_H, S_L, S_H, energies_keV)`:
+        - **核心逻辑**: 结合重建得出的低高能连续积分谱 $S_L, S_H$，调用 `scipy.optimize.root` 求解非线性二元超越方程组，逆向求出解耦能谱硬化漂移后的光电面密度 $apd$ 与康普顿面密度 $acd$。
+        - **参数解释**:
+            - `T_L`, `T_H` (float 或 np.ndarray): 实测低能与高能透射率.
+            - `S_L`, `S_H` (np.ndarray): 重建的归一化低能与高能有效能谱分布.
+            - `energies_keV` (np.ndarray): 对应的能量网格数组，单位 keV.
+
 ### `predict_disk_Z.py`
 - **Purpose**: Fits Model 2 (multivariate polynomial) and generates heatmaps and histograms for predicted atomic numbers (Z) of disks.
 - **Workflow**:
@@ -366,17 +420,26 @@ This workspace focus on validating XRT image quality and extracting standard sam
       - **独立 JSON 归档**：各层厚度对应的详细物理衰减 JSON 参数数据仍独立生成，保存为 `attenuation_slopes_{mu_mode}_{step_name}.json` 以实现详细数值的精确查阅。
 
 ### `read_raw.py`
-- **Purpose**: Batch convert 16-bit `.raw` XRT images into `.png` format.
+- **Purpose**: 图像格式批量转换工具，用于递归地将 16-bit text 图像文件（以 tab 或空格分隔的整数灰度矩阵）以及 16-bit 二进制 RAW 格式图片文件无损地转换为标准的 16-bit PNG 图像。
 - **Workflow**:
-    1. Traverses the specified source directory for `.raw` files.
-    2. Reads 1024x1024 raw pixel data as `uint16`.
-    3. Reshapes to 2D array and saves as `.png` using `cv2.imencode` to support Unicode file paths.
+    1. 递归地遍历指定源目录下的子文件夹，查找匹配的文件。
+    2. 对于每个匹配的文件，应用文件名关键字过滤。
+    3. 自动解析和提取 `.txt`（二维形状自保留）与 `.raw`（从文件名解析尺寸或使用参数）的图像像素。
+    4. 保留原有的目录结构层级镜像输出至 `converted_pngs` 目录中。
 - **Functions**:
-    - `convert_raw_to_png(src_dir, dst_dir, width, height)`: Reads 16-bit RAW images from the source directory, converts them to PNG, and saves them in the destination directory.
-        - 参数 `src_dir`: 包含 .raw 文件的源目录 (str)。
-        - 参数 `dst_dir`: 保存转换后 .png 文件的目标目录 (str)。
-        - 参数 `width`: 图像预期宽度 (int，默认为1024)。
-        - 参数 `height`: 图像预期高度 (int，默认为1024)。
+    - `convert_txt_and_raw_to_png(src_dir, dst_dir=None, filter_keyword="校准后", width=1024, height=1024)`:
+        - **核心逻辑**：自动递归扫描源目录及所有子文件夹下的 `*.txt` 和 `*.raw` 文件。
+            - **路径层级保留**：在输出的目标文件夹 `dst_dir` 下镜像生成相同的子目录树，保存转换后的 PNG，并自动跳过已存在的 `converted_pngs` 输出文件夹。
+            - **关键字过滤**：提供参数 `filter_keyword`（默认 `"校准后"`），只转换文件名包含该关键字的图片。
+            - 对于文本 `.txt` 文件：直接利用 `np.loadtxt` 载入其二维整数矩阵，天然保持二维形状。
+            - 对于二进制 `.raw` 文件：通过正则从文件名中匹配尺寸信息（如 `1024_1024` 或 `2048_512`）进行 `reshape`，或使用默认的 `width` 和 `height` 进行 `reshape`。
+            - 最终利用 OpenCV 的 `cv2.imencode` 接口无损打包成 16-bit `.png` 文件并写入目标路径，支持 Windows 下包含中文及特殊字符的路径。
+        - **参数解释**：
+            - `src_dir` (str): 包含待转换文件的源目录路径。
+            - `dst_dir` (str, 可选): 保存生成的 `.png` 图像的目标目录路径，为 None 时默认拼接 `"converted_pngs"`。
+            - `filter_keyword` (str, 可选): 文件名中必须包含的关键字（默认 `"校准后"`）。
+            - `width` (int): 二进制 `.raw` 图像的默认期望宽度（默认 1024）。
+            - `height` (int): 二进制 `.raw` 图像的默认期望高度（默认 1024）。
 
 ### `plot_row_mean.py`
 - **Purpose**: Analyze and visualize the column-wise mean of specific row segments (e.g., first 10 rows) for the converted PNG images.
@@ -471,7 +534,10 @@ This workspace focus on validating XRT image quality and extracting standard sam
     4. Translates Chinese terms in filenames to English for better compatibility.
     5. Uses `cv2.imencode` to robustly save images (default format: `.tif`) to paths containing Chinese characters.
     6. Supports **16-bit precision** (preserving raw pixel values in `uint16`) or 8-bit normalization.
-
+## Paper Notes & Guidelines
+- [notes_calibration_wedge.md](file:///e:/photo_electric_II/paper/notes_calibration_wedge.md): 铜、铝、铁阶梯标样下的双能物理系数校准指南。详尽整理了基于系统无关（SIRZ）三阶段标定算法对电子密度常数 $K_1$、原子序数常数 $g$ 与幂次 $\nu$ 的最小二乘与对数线性拟合回归数学模型。
+- [notes_sandwich_detector.md](file:///e:/photo_electric_II/paper/notes_sandwich_detector.md): 用于双能X射线成像中材料识别与对比度消除的三明治探测器设计学术阅读报告。
+- [notes_spectrum_reconstruction.md](file:///e:/photo_electric_II/paper/notes_spectrum_reconstruction.md): 基于标样阶梯吸收差异反推出射 X 射线有效能谱的数学物理模型与增广非负最小二乘 (NNLS) 反演正则化求解原理指南。
 
 ## Data Paths
 - Standard Samples: `data/` or relevant relative path.

@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>双能X射线：现代化对比度消除投影面板</title>
+    <style>
+        :root {
+            --bg-body: #eef2f6;
+            --bg-panel: #ffffff;
+            --bg-card: #f8fafc;
+            --border-color: #e2e8f0;
+            --text-main: #1e293b;
+            --text-muted: #64748b;
+            --accent-blue: #3b82f6;
+            --accent-red: #ef4444;
+            --accent-green: #22c55e;
+        }
+
+        body {
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            background-color: var(--bg-body);
+            margin: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            color: var(--text-main);
+        }
+
+        .dashboard {
+            display: flex;
+            gap: 24px;
+            background: var(--bg-panel);
+            padding: 24px;
+            border-radius: 16px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.05);
+            align-items: stretch;
+        }
+
+        /* 左侧画布区域 */
+        .canvas-section {
+            background: #ffffff;
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 20px;
+            position: relative;
+        }
+
+        canvas {
+            display: block;
+        }
+
+        /* 右侧控制面板区域 */
+        .control-section {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            width: 320px;
+        }
+
+        .card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 16px;
+        }
+
+        /* 顶部滑块区域 */
+        .slider-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-weight: 600;
+            margin-bottom: 12px;
+            font-size: 15px;
+        }
+
+        input[type="range"] {
+            width: 100%;
+            cursor: pointer;
+            accent-color: var(--accent-blue);
+        }
+
+        /* 图标卡片展示区 */
+        .icon-panel {
+            display: flex;
+            gap: 12px;
+        }
+
+        .icon-card {
+            flex: 1;
+            background: #ffffff;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 12px 8px;
+            text-align: center;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .icon-card .title {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-main);
+        }
+
+        .icon-card .icon {
+            font-size: 24px;
+        }
+
+        .icon-card .desc {
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+
+        /* 数据展示列表 */
+        .data-list {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .data-row {
+            display: flex;
+            justify-content: space-between;
+            font-size: 13px;
+            color: var(--text-muted);
+            align-items: center;
+        }
+
+        .data-value {
+            font-family: monospace;
+            font-size: 14px;
+            color: var(--text-main);
+            font-weight: 600;
+        }
+
+        .highlight-green {
+            color: var(--accent-green);
+            font-weight: bold;
+        }
+
+        .highlight-red {
+            color: var(--accent-red);
+            font-weight: bold;
+        }
+
+        .success-banner {
+            background: #f0fdf4;
+            border: 1px solid #bbf7d0;
+            color: #166534;
+            padding: 12px;
+            border-radius: 8px;
+            text-align: center;
+            font-weight: 600;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            height: 20px;
+            transition: opacity 0.2s;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="dashboard">
+        <div class="canvas-section">
+            <canvas id="projectorCanvas" width="450" height="450"></canvas>
+        </div>
+
+        <div class="control-section">
+
+            <div class="card">
+                <div class="slider-header">
+                    <span>投影角 (Φ):</span>
+                    <span id="angleValue">36.9°</span>
+                </div>
+                <input type="range" id="angleSlider" min="0" max="90" step="0.1" value="36.9">
+            </div>
+
+            <div class="icon-panel">
+                <div class="icon-card">
+                    <div class="title">⚖️ 消除对比度</div>
+                    <div class="icon">🔵</div>
+                    <div class="desc">脉石重合点</div>
+                </div>
+                <div class="icon-card">
+                    <div class="title">🌟 目标凸显</div>
+                    <div class="icon">🎯</div>
+                    <div class="desc">含铜矿点</div>
+                </div>
+            </div>
+
+            <div class="card data-list">
+                <div class="slider-header" style="margin-bottom: 4px;">脉石背景数据</div>
+                <div class="data-row"><span>背景1 投影值 ($C_\xi$):</span><span class="data-value" id="c1">0.00</span></div>
+                <div class="data-row"><span>背景2 投影值 ($C_\psi$):</span><span class="data-value" id="c2">0.00</span></div>
+                <div style="border-top: 1px dashed var(--border-color); margin: 4px 0;"></div>
+                <div class="data-row">
+                    <span>背景对比度 ($\Delta C$):</span>
+                    <span class="data-value" id="deltaC">0.00</span>
+                </div>
+            </div>
+
+            <div class="card data-list">
+                <div class="slider-header" style="margin-bottom: 4px;">含铜矿目标数据</div>
+                <div class="data-row"><span>目标投影值 ($C_\text{target}$):</span><span class="data-value"
+                        id="cT">0.00</span></div>
+                <div class="data-row"><span>目标与背景对比度:</span><span class="data-value highlight-red"
+                        id="targetDeltaC">0.00</span></div>
+            </div>
+
+            <div class="success-banner" id="successMsg" style="opacity: 0;">
+                🎉 背景对比度已消除！
+            </div>
+
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('projectorCanvas');
+        const ctx = canvas.getContext('2d');
+        const angleSlider = document.getElementById('angleSlider');
+
+        // UI Elements
+        const elAngle = document.getElementById('angleValue');
+        const elC1 = document.getElementById('c1');
+        const elC2 = document.getElementById('c2');
+        const elDeltaC = document.getElementById('deltaC');
+        const elCT = document.getElementById('cT');
+        const elTargetDelta = document.getElementById('targetDeltaC');
+        const elSuccess = document.getElementById('successMsg');
+
+        // 坐标系设置 (匹配450x450的画布)
+        const scale = 35;
+        const originX = 40;
+        const originY = 410;
+
+        // 数据点
+        const p1 = { x: 3, y: 6, label: '(脉石 A)', color: '#3b82f6' };
+        const p2 = { x: 6, y: 2, label: '(脉石 B)', color: '#3b82f6' };
+        const target = { x: 7, y: 6, label: '(含铜矿)', color: '#ef4444' };
+
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // 1. 绘制极简网格 (模仿图片中的方格)
+            ctx.strokeStyle = '#f1f5f9';
+            ctx.lineWidth = 1;
+            for (let i = 0; i <= 10; i++) {
+                // 水平网格线
+                ctx.beginPath();
+                ctx.moveTo(originX, originY - i * scale);
+                ctx.lineTo(originX + 10 * scale, originY - i * scale);
+                ctx.stroke();
+                // 垂直网格线
+                ctx.beginPath();
+                ctx.moveTo(originX + i * scale, originY);
+                ctx.lineTo(originX + i * scale, originY - 10 * scale);
+                ctx.stroke();
+            }
+
+            // 2. 绘制坐标轴与刻度文字
+            ctx.fillStyle = '#64748b';
+            ctx.font = '12px system-ui';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+
+            for (let i = 1; i <= 10; i++) {
+                ctx.fillText(i, originX + i * scale, originY + 15);
+                ctx.fillText(i, originX - 15, originY - i * scale);
+            }
+
+            ctx.beginPath();
+            ctx.moveTo(originX, originY - 10 * scale - 10);
+            ctx.lineTo(originX, originY);
+            ctx.lineTo(originX + 10 * scale + 10, originY);
+            ctx.strokeStyle = '#cbd5e1';
+            ctx.lineWidth = 1.5;
+            ctx.stroke();
+
+            // 坐标轴标签
+            ctx.fillStyle = '#475569';
+            ctx.textAlign = 'left';
+            ctx.fillText('A1 (基准物质 1)', originX + 10 * scale - 40, originY - 15);
+            ctx.fillText('A2 (基准物质 2)', originX + 10, originY - 10 * scale + 10);
+
+            // 3. 绘制背景连线
+            ctx.beginPath();
+            ctx.moveTo(originX + p1.x * scale, originY - p1.y * scale);
+            ctx.lineTo(originX + p2.x * scale, originY - p2.y * scale);
+            ctx.strokeStyle = '#94a3b8';
+            ctx.setLineDash([5, 5]);
+            ctx.lineWidth = 1.5;
+            ctx.stroke();
+            ctx.setLineDash([]);
+
+            // 获取角度并计算向量
+            const angleDeg = parseFloat(angleSlider.value);
+            const angleRad = angleDeg * Math.PI / 180;
+            const nx = Math.cos(angleRad);
+            const ny = Math.sin(angleRad);
+
+            // 4. 绘制投影射线 (带有图片中的发光/加粗效果)
+            const rayLength = 500;
+            const endX = originX + nx * rayLength;
+            const endY = originY - ny * rayLength;
+
+            // 发光外晕
+            ctx.beginPath();
+            ctx.moveTo(originX, originY);
+            ctx.lineTo(endX, endY);
+            ctx.strokeStyle = 'rgba(34, 197, 94, 0.15)';
+            ctx.lineWidth = 10;
+            ctx.stroke();
+
+            // 实体射线
+            ctx.beginPath();
+            ctx.moveTo(originX, originY);
+            ctx.lineTo(endX, endY);
+            ctx.strokeStyle = '#22c55e';
+            ctx.lineWidth = 2.5;
+            ctx.stroke();
+
+            // 射线标签
+            ctx.fillStyle = '#16a34a';
+            ctx.font = 'bold 13px system-ui';
+            ctx.fillText(`投影射线 (Φ)`, originX + nx * 200 - 30, originY - ny * 200 - 15);
+
+            // 5. 投影计算与绘制点/垂线
+            const calcProjection = (pt, label, color) => {
+                const c = pt.x * nx + pt.y * ny;
+                const px = c * nx;
+                const py = c * ny;
+
+                const sPtX = originX + pt.x * scale;
+                const sPtY = originY - pt.y * scale;
+                const sPxX = originX + px * scale;
+                const sPxY = originY - py * scale;
+
+                // 绘制虚线垂线
+                ctx.beginPath();
+                ctx.moveTo(sPtX, sPtY);
+                ctx.lineTo(sPxX, sPxY);
+                ctx.strokeStyle = color;
+                ctx.setLineDash([3, 3]);
+                ctx.lineWidth = 1.2;
+                ctx.stroke();
+                ctx.setLineDash([]);
+
+                // 绘制垂足 (射线上的点)
+                ctx.beginPath();
+                ctx.arc(sPxX, sPxY, 5, 0, Math.PI * 2);
+                ctx.fillStyle = color;
+                ctx.fill();
+                ctx.lineWidth = 2;
+                ctx.strokeStyle = '#fff';
+                ctx.stroke();
+
+                // 绘制原始点 (模仿图片中带阴影/高亮的圆点)
+                ctx.beginPath();
+                ctx.arc(sPtX, sPtY, 7, 0, Math.PI * 2);
+                ctx.fillStyle = color;
+                ctx.fill();
+                ctx.lineWidth = 2;
+                ctx.strokeStyle = '#fff';
+                ctx.stroke();
+
+                ctx.fillStyle = '#334155';
+                ctx.font = '13px system-ui';
+                ctx.textAlign = 'left';
+                ctx.fillText(label, sPtX + 12, sPtY);
+
+                return c;
+            };
+
+            const c1 = calcProjection(p1, p1.label, p1.color);
+            const c2 = calcProjection(p2, p2.label, p2.color);
+            const cT = calcProjection(target, target.label, target.color);
+
+            // 6. 更新右侧面板数据
+            const deltaC = Math.abs(c1 - c2);
+            elAngle.innerText = `${angleDeg.toFixed(1)}°`;
+            elC1.innerText = c1.toFixed(2);
+            elC2.innerText = c2.toFixed(2);
+            elDeltaC.innerText = deltaC.toFixed(2);
+            elCT.innerText = cT.toFixed(2);
+            elTargetDelta.innerText = Math.abs(cT - c1).toFixed(2);
+
+            // 状态判断与样式切换
+            if (deltaC < 0.05) {
+                elSuccess.style.opacity = '1';
+                elDeltaC.className = 'data-value highlight-green';
+                elDeltaC.innerText += ' ✓';
+            } else {
+                elSuccess.style.opacity = '0';
+                elDeltaC.className = 'data-value';
+            }
+        }
+
+        angleSlider.addEventListener('input', draw);
+        draw(); // 初始渲染
+    </script>
+
+</body>
+</html>
