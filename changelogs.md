@@ -1,6 +1,50 @@
+## 2026-06-09
+- **Import Resolution Fix**: 修复了 [reconstruct_spectrum.py](file:///e:/photo_electric_II/apd_acd_pipeline/reconstruct_spectrum.py) 和 [get_apd_acd.py](file:///e:/photo_electric_II/apd_acd_pipeline/get_apd_acd.py) 因缺少系统路径添加导致抛出 `ModuleNotFoundError: No module named 'get_mu_from_nist_new'` 的报错。已在文件头部补回并激活 `sys.path.append` 代码，使子文件夹中的脚本均能顺利加载父目录的公共基础模块。
+- **Spectrum Reconstruction Resolution & Smoothing Tuning**: 针对能谱重建结果中 0 值过多以及大于 100keV 出现虚假振荡峰的问题，调整了 [reconstruct_spectrum.py](file:///e:/photo_electric_II/apd_acd_pipeline/reconstruct_spectrum.py) 的求解配置：
+  - 将离散能量网格的 bin 宽度从 `5.0 keV` 扩大至 **`10.0 keV`**，以降低前向投影投影矩阵的病态性与不确定性。
+  - 将 NNLS 重建求解器中的平滑正则化系数 `lambda_val` 从 `0.005` 调大至 **`0.08`**，增强平滑度惩罚强度，有效减少了能谱的零值区间并抑制了高能虚假多重峰的产生。
+
+
+## 2026-06-08
+- **PKL Reader Tool (GUI & EXE Package)**: 在 [pkl_reader/reader_app.py](file:///e:/photo_electric_II/pkl_reader/reader_app.py) 中实现了一个基于 CustomTkinter 的高级可视化 PKL 文件读取工具，支持多层嵌套字典/列表树状浏览、Numpy 和 Pandas DataFrame 二维表格数据预览与基础统计分析、Matplotlib 1D/2D 数值数组图形可视化渲染，并提供数据导出为 CSV/TXT 文件的接口。同时创建了 [pkl_reader/build.bat](file:///e:/photo_electric_II/pkl_reader/build.bat) 编译打包脚本，可用于一键生成免安装的 `pkl_reader.exe` 独立执行程序。对所有新增函数及方法的参数、类型和用途均同步补充了详尽的中文注释。针对 PyInstaller 打包时由于扫描 Anaconda 库导致的 `torchaudio` 等未用二进制的 entry point 缺失报错，在批处理文件中引入了 `--exclude-module` 参数予以屏蔽排除。
+- **Ze vs Zeff Comparison Plot**: 在 [calculate_ores_properties.py](file:///e:/photo_electric_II/apd_acd_pipeline/calculate_ores_properties.py) 中新增了 `plot_ze_comparison` 绘制函数。根据公式 $Z_{eff} = w_{Cu} \cdot 29 + w_{Fe} \cdot 26 + w_{S} \cdot 16 + (1 - w_{Cu} - w_{Fe} - w_{S}) \cdot 11$ 计算矿石理论上的有效原子序数，并将反解出的 $Z_e$ 均值（基于 M1 能谱积分方法）与理论 $Z_{eff}$ 进行散点对比，画出 $y=x$ 参考线，并自动计算 Pearson 相关系数，图像保存至 `results/thickness_decoupling/0325_ores_ze_vs_zeff.png`。
+- **Create apd_acd_pipeline Folder & Relocalize Code**: 新建子文件夹 [apd_acd_pipeline](file:///e:/photo_electric_II/apd_acd_pipeline/)，并将 ap/ac 特征计算以及能谱重建相关的代码文件（[get_apd_acd.py](file:///e:/photo_electric_II/apd_acd_pipeline/get_apd_acd.py) 和 [reconstruct_spectrum.py](file:///e:/photo_electric_II/apd_acd_pipeline/reconstruct_spectrum.py)）复制移入其中。
+- **Path and Import Resolution**:
+  - 在复制的两个脚本头部均添加了 `sys.path.append`，使之能正确访问并导入位于父目录下的公共模块 `utils_II` 和 `get_mu_from_nist_new`。
+  - 将两个脚本中与 `script_dir` 挂钩的相对路径解析全部修改为以父目录为基准，确保运行在子文件夹中时依然能正确读取和输出到原工程的根目录（例如数据输入 `nist_data/`、`results/`，以及绘图与结果文件保存路径）。
+- **Add calculate_ores_properties.py**: 在 `apd_acd_pipeline` 中新建脚本 [calculate_ores_properties.py](file:///e:/photo_electric_II/apd_acd_pipeline/calculate_ores_properties.py)，用于读取 114 块矿石的灰度与化验数据集 `0325_input.pkl`，加载重建的能谱与标定系统参数，采用非线性积分方法（M1）解算像素级 APD/ACD 特征，反算其有效原子序数 ($Z_e$) 和电子密度 ($\rho_e$)，并将均值与标准差合并到原 DataFrame 中，最后以 `0325_ores_calculated_properties.csv` 格式保存结果。同步按照 Rule 5 对自定义函数补全了详细的中英文参数解析注释。
+
+- **Operational Configuration Update**: 按照用户要求，将 [get_apd_acd.py](file:///e:/photo_electric_II/get_apd_acd.py) 的计算电压限制为仅分析 **`200kV`** 和 **`280kV`** 两档电压，并关闭了历史 `0331` 数据集在 0.6mm 配置下的混合加载。同时对于 `summary_coefficients` 特征依赖依赖图，移除了单个滤片的独立曲线绘制，**仅保留并绘制 0.6mm 和 1.2mm 的合并对比曲线（combined）**。
+- **Pipeline Refactoring: APD/ACD Calculation Consolidation**: 将 [reconstruct_spectrum.py](file:///e:/photo_electric_II/reconstruct_spectrum.py) 中计算 APD/ACD 物理特征以及后续标定和 Ze, rho_e 估算的代码完全提取并整合移植到 [get_apd_acd.py](file:///e:/photo_electric_II/get_apd_acd.py) 中。
+  - **get_apd_acd.py**：现在负责读取能谱反演 JSON 数据，对 Static、Dyn、M1 三种算法配置进行完整的像素级与标样级特征 analysis、SIRZ 校准参数拟合、以及 Ze / rho_e 特征估计，并绘制多电压 bulk 物理常数变化依赖图（支持单滤片及 0.6mm + 1.2mm 双滤片并合对比图）、单算法 2x2 剖析图、直方图以及跨算法 APD/ACD 线性度对比图 (`*_apd_acd_linearity.png`)。补充了 `_plot_calibration_fit` 函数以绘制 $\ln(a_p/a_c)$ vs $\ln(Z)$ 的线性标定拟合线。
+  - **reconstruct_spectrum.py**：现在只专注于 X 射线连续出射能谱的反演重建，生成对应的能谱强度分布图、入射等效能量折线图，并将反演参数保存为 `reconstructed_spectra_summary.json` 文件供后续读取。
+  - 两个文件的对应函数都加入了详细的中英文参数类型、含义与用法的中文注解文档。
+- **Duane-Hunt Boundary & Soft Decay Constraint for Spectrum Reconstruction**: 针对能谱重建算法在高能量区域产生的虚假连续峰（unphysical spikes），在 [reconstruct_spectrum.py](file:///e:/photo_electric_II/reconstruct_spectrum.py) 的 `reconstruct_channel_spectrum` 求解器中引入了 Duane-Hunt 渐进物理截止约束。通过在能量高于 $0.85 \cdot E_{max}$ 的高能区域以及低于 $35\text{ keV}$ 的低能端，添加随能量偏差二次递增的对角线软衰减惩罚行向量（Soft Decay Envelope Penalty），强迫能谱光滑地贴紧边界归零，彻底消除了由高能区系统矩阵高共线性/病态性以及数据噪声引起的虚假振荡峰。同时同步更新了函数的详细中英文参数定义与用法注释。
+- **Spectrum Reconstruction Steps Adjustment**: 将能谱重建阶段的铜和铁标样的加载数量由遍历 `[1, 3, 5]` 统一修改为固定使用前 **`4`** 个厚度阶梯（铝标样依旧保持使用全部 10 个阶梯），并删除了旧的历史运行结果目录 `CuFe_1steps`、`CuFe_3steps`、`CuFe_5steps`。
+- **Disable Method 2 Execution**: 在 [reconstruct_spectrum.py](file:///e:/photo_electric_II/reconstruct_spectrum.py) 的主控制流中，完全注释掉了方法二（Method 2：差值能谱估计法）的运行求解、计算打印、独立绘图和数据归一化记录，从而使主程序只专注于运行更符合物理机理的方法一（正则化 NNLS），以提升分析效率。
+
+## 2026-06-05
+- **Combined Plotting for Summary Coefficients (M1)**: 在 [get_apd_acd.py](file:///e:/photo_electric_II/get_apd_acd.py) 中新增了 `_plot_combined_coefficient_dependence` 并合绘制函数，用于将 0.6mm (实线+圆圈) 和 1.2mm (虚线+三角形) 滤片的 bulk 特征曲线绘制在同一张图中以进行对比。同时在 [reconstruct_spectrum.py](file:///e:/photo_electric_II/reconstruct_spectrum.py) 中重构了数据搜集逻辑，将 `coeff_summaries` 的初始化提至滤片外循环，在两滤片的数据搜集完成后调用此并合绘制函数，保存为 `summary_coefficients_M1_combined_step{step_num}.png` 并自动清理了残留的单滤片旧图。
+- **Plot Generation Configuration**: 禁用了能谱重建中的 `sirz_calibration_fit` 拟合图的生成，并将 `summary_coefficients` 趋势图的绘制限定为仅针对方法一（M1），从而规避了不必要的绘图开销并凸显主谱重构方案的对比分析结果。
+- **Refactoring Properties Computation**: 在 [get_apd_acd.py](file:///e:/photo_electric_II/get_apd_acd.py) 中实现了统一的 `compute_sirz_properties` 函数，用于根据 $a_p, a_c$ 比系数、厚度及系统常数 $(K_1, g, \nu)$ 计算有效电子密度 $\rho_e$ 与代数原子序数 $Z_e$，并在 [get_apd_acd.py](file:///e:/photo_electric_II/get_apd_acd.py) 本身与 [reconstruct_spectrum.py](file:///e:/photo_electric_II/reconstruct_spectrum.py) 中进行重用，彻底打通了两者的计算与校准逻辑，规避了冗余公式定义，并附带了详尽的中英文多维度参数解释。
+- **Reusing Main Calibration Logic**: 移除了 [reconstruct_spectrum.py](file:///e:/photo_electric_II/reconstruct_spectrum.py) 中本地冗余的 `calibrate_sirz_parameters` 与 `compute_sirz_properties` 逻辑，转而通过在反演数据上构造符合主接口的 `voltage_data` 结构，直接导入并重用了 [get_apd_acd.py](file:///e:/photo_electric_II/get_apd_acd.py) 的 `calibrate_sirz_coefficients` 方法进行系统参数常数标定，极大提升了物理流程一致性与代码重用率。
+- **$\rho_e$ and $Z_e$ Voltage Dependency Plotting**: 收集了 Static、Dyn、M1、M2 4种算法下，所有电压（200kV-320kV）在步骤 1, 3, 5 的物理量，调用并复用了 [get_apd_acd.py](file:///e:/photo_electric_II/get_apd_acd.py) 的 `_plot_coefficient_dependence` 函数绘制并保存随电压变化的 $a_p$, $a_c$, $Z_e$, $\rho_e$ 曲线趋势大图（`summary_coefficients_{method}_{f_type}_step{step_num}.png`）。
+- **Memory Leak & Memory Limit Optimization**:
+  - 在大图绘制的关键节点显式加入了 Matplotlib 全局画布关闭命令 `plt.close('all')` 并触发 `gc.collect()` 垃圾回收机制，杜绝了多子图缓存导致的内存占用泄漏。
+  - 将重建图 `figsize` 从 `(14, 6)` 调整为 `(10, 5)`，将对比图从 `(18, 10)` 缩减至 `(12, 7)`，减少了图像的分辨率开销，彻底解决了 Windows 平台内存受限环境下出现的 `MemoryError: In RendererAgg: Out of memory` 渲染崩溃错误。
+- **Colors Synchronization**: 更新了详细剖析和拟合图中的配色，统一使用与 [get_apd_acd.py](file:///e:/photo_electric_II/get_apd_acd.py) 中一致的现代天空蓝（Al）、优雅孔雀绿（Fe）和经典黄铜橙（Cu）。
+- **SIRZ Physical Calibration Integration**: 在 [reconstruct_spectrum.py](file:///e:/photo_electric_II/reconstruct_spectrum.py) 中打通了能谱反演与主标定程序 [get_apd_acd.py](file:///e:/photo_electric_II/get_apd_acd.py) 的物理联系。
+  - **常数自动标定**：提取三种单质金属在最薄阶梯处的 bulk 系数，以对数线性回归和最小二乘反解出系统电子密度常数 $K_1$、原子序数常数 $g$ 和幂次常数 $\nu$。
+  - **物理属性解密**：使用标定出的系统常数，自动计算了所有阶梯样品在各电压下的电子密度（$\rho_e$）与有效原子序数（$Z_e$），并将其完整地持久化归档到了 `reconstructed_spectra_summary.json` 的 `calibration` 节点中。
+  - **终端参数可视化**：在反推流程中同步打印标定结果，使得系统特征常数的收敛和演化路径一目了然。
+- **Logarithmic Scale for Spectra Y-axis**: 将主能谱分布图 `reconstructed_spectra_{f_type}.png` 及方法二能谱图 `reconstructed_spectra_method2_{f_type}.png` 的纵坐标（Y 轴）统一修改为**对数刻度（log scale）**，横坐标保持线性不变。
+- **Zero-Clipping for Layout Stability**: 为了防止能谱边界处数值为零（$S=0.0$）在对数变换下转换为 $-\infty$ 导致 Matplotlib `tight_layout()` 布局引擎在计算边界框时溢出崩溃（`MemoryError: In RendererAgg: Out of memory`），在绘图输入端引入了正向限幅，统一将画图数据处理为 `np.maximum(S, 1e-6)`，并设置 Y 轴底部可视化限制为 `1e-4`。
+- **Plot Isolation for Spectra**: 对 [reconstruct_spectrum.py](file:///e:/photo_electric_II/reconstruct_spectrum.py) 进行了绘图逻辑重构。在生成的主能谱分布图 `reconstructed_spectra_{f_type}.png` 中移除了方法二（差值法）的曲线，使该主图专用于高保真展示方法一（正则化 NNLS）在不同电压下的能谱反演结果，彻底实现了方法一与方法二在光谱分布与线性度评估上的双重图形学隔离。
+- **Execution & Verification**: 在本地环境重新运行并完成了所有厚度配置下的能谱反推流程，验证了新生成对数刻度图表的正确性与程序稳定性。
+
 ## 2026-06-04
+- **Generalizability Evaluation Upgrade**: 重构并升级了 [reconstruct_spectrum.py](file:///e:/photo_electric_II/reconstruct_spectrum.py) 的线性度评估逻辑。在能谱重建（训练）时依然使用受限制的 `cu_fe_max_steps`（如 1, 3, 5, 7 等），但在 APD/ACD 特征求解与线性度评估（测试）时，**强制加载并运行全部 10 个厚度阶梯的数据**。这使得我们能够验证“基于前 $K$ 个厚度反演得到的入射能谱是否能成功外推/泛化应用于其他更厚阶梯的物理计算”。同时，计算 APD/ACD 线性拟合的 $R^2$ 时，铝（Al）保持使用全部 10 个厚度，铜铁（Cu/Fe）只在其可穿透的前 5 个有效厚度级进行评估，避免了厚端探测器穿不透的本底底噪对重建谱精度度量造成惩罚。
 - **Execution & Local Verification**: 在本地 Anaconda Python 环境下运行并验证了 [reconstruct_spectrum.py](file:///e:/photo_electric_II/reconstruct_spectrum.py)。生成了 5 组不同铜铁最大厚度配置（`1`、`3`、`5`、`7`、`10` 个厚度阶梯，同时固定铝为全部 10 个厚度）在 7 个电压（200kV-320kV）及 2 种滤片（0.6mm, 1.2mm）下的全部能谱反演和 APD/ACD 线性度分析结果，成功输出至各自对应的结果文件夹中。
-- **Multi-Thickness-Step Configuration Evaluation**: 针对铜、铁重衰减材质在后半段大厚度阶梯（第 5 级及以后）因高吸收导致探测器穿透不足、数据噪点增大的实验事实，重构了能谱反演脚本 [reconstruct_spectrum.py](file:///e:/photo_electric_II/reconstruct_spectrum.py)。
     - **函数参数升级**：为 [load_transmission_data](file:///e:/photo_electric_II/reconstruct_spectrum.py#L86-L167) 引入了新输入参数 `cu_fe_max_steps`（整型，默认值 10），并在函数文档字符串中详细注解了该参数的物理含义和用法类型，用来限制重金属标样的加载步数。
     - **主控制流遍历与独立目录归档**：主函数 `main()` 增加了一层外循环，强制固定铝标样使用全部 10 个厚度，而循环遍历铜、铁阶梯取 `[1, 3, 5, 7, 10]` 个不同最大厚度的实验结果。生成的全部能谱曲线图、线性拟合图和参数 JSON 归档文件分别以 `CuFe_1steps` 到 `CuFe_10steps` 独立文件夹进行存储，独立保存结果。
 - **Method 2 Separate Plotting**: 应用户要求，在 [reconstruct_spectrum.py](file:///e:/photo_electric_II/reconstruct_spectrum.py) 的主程序中独立生成并输出了方法二（相邻差值映射法）的专属能谱图和 $apd$/$acd$ 线性度散点拟合图。

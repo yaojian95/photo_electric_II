@@ -1,4 +1,7 @@
+import sys
 import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 import pickle
 import numpy as np
 import json
@@ -8,6 +11,8 @@ import matplotlib.pyplot as plt
 from scipy.interpolate import interp1d
 import scipy.optimize
 import get_mu_from_nist_new
+import get_apd_acd
+import gc
 
 # ==============================================================================
 # Global Configuration & Physical Constants
@@ -217,7 +222,8 @@ def build_system_matrix(materials: list, thicknesses_cm: np.ndarray, energies_ke
 def reconstruct_channel_spectrum(A: np.ndarray, T: np.ndarray, energies_keV: np.ndarray, 
                                  lambda_val: float = 0.005, gamma: float = 20.0, beta: float = 10.0) -> np.ndarray:
     """
-    Reconstructs the X-ray spectrum for a single channel (LE or HE) using regularized NNLS.
+    Reconstructs the X-ray spectrum for a single channel (LE or HE) using regularized NNLS,
+    incorporating a Duane-Hunt soft decay constraint at high energies to eliminate spurious peaks.
     
     Parameters:
     - A (np.ndarray): The system matrix of shape (N, M).
@@ -245,6 +251,14 @@ def reconstruct_channel_spectrum(A: np.ndarray, T: np.ndarray, energies_keV: np.
       Meaning: Forces the start and end bins to be 0.
       Usage: E.g., 10.0.
       
+    中文参数说明：
+    - A (np.ndarray): 大小为 (N, M) 的前向系统投影矩阵，A[j, i] 表示能量为 E_i 的光子穿过第 j 阶梯时的理论透射率。
+    - T (np.ndarray): 大小为 (N,) 的实测透射率向量 (I/I0)。
+    - energies_keV (np.ndarray): 离散重建能谱的能量仓中心坐标数组，单位为 keV。
+    - lambda_val (float): Tikhonov 二阶差分平滑正则化参数，用于惩罚能谱剧烈振荡，使谱线平滑。
+    - gamma (float): 归一化约束的权重因子，强迫所有能量组分的概率和为 1。
+    - beta (float): 两端边界（最低能量和最高能量点）归零约束的权重因子。
+      
     Returns:
     - np.ndarray: Reconstructed spectrum S of shape (M,), normalized to sum to 1.
     """
@@ -266,22 +280,73 @@ def reconstruct_channel_spectrum(A: np.ndarray, T: np.ndarray, energies_keV: np.
     # Sum constraint (sum(S) = 1)
     row_norm = gamma * np.ones((1, M))
     
-    # Augment A and T
-    A_aug = np.vstack([
-        A,
-        row_norm,
-        row_bound_start,
-        row_bound_end,
-        np.sqrt(lambda_val) * D
-    ])
+    # Duane-Hunt soft decay envelope constraint at high energies (E > 0.85 * E_max)
+    E_max = energies_keV[-1]
+    E_thresh = 0.85 * E_max
+    decay_rows = []
     
-    T_aug = np.concatenate([
-        T,
-        [gamma],
-        [0.0],
-        [0.0],
-        np.zeros(M - 2)
-    ])
+    # We add soft decay constraints: for bins with energy E_i > E_thresh, we penalize S_i
+    # with a weight that increases quadratically towards E_max.
+    for i in range(M):
+        E_i = energies_keV[i]
+        if E_i > E_thresh:
+            row = np.zeros(M)
+            # Quadratic decay penalty weight towards the high energy boundary
+            weight = beta * ((E_i - E_thresh) / (E_max - E_thresh)) ** 2
+            row[i] = weight
+            decay_rows.append(row)
+            
+    # Include low-energy soft decay below 35 keV if available
+    E_min = energies_keV[0]
+    E_low_thresh = 35.0
+    if E_low_thresh > E_min:
+        for i in range(M):
+            E_i = energies_keV[i]
+            if E_i < E_low_thresh:
+                row = np.zeros(M)
+                # Quadratic decay penalty weight towards the low energy boundary
+                weight = beta * ((E_low_thresh - E_i) / (E_low_thresh - E_min)) ** 2
+                row[i] = weight
+                decay_rows.append(row)
+                
+    if len(decay_rows) > 0:
+        decay_matrix = np.vstack(decay_rows)
+        num_decay = decay_matrix.shape[0]
+        
+        A_aug = np.vstack([
+            A,
+            row_norm,
+            row_bound_start,
+            row_bound_end,
+            decay_matrix,
+            np.sqrt(lambda_val) * D
+        ])
+        
+        T_aug = np.concatenate([
+            T,
+            [gamma],
+            [0.0],
+            [0.0],
+            np.zeros(num_decay),
+            np.zeros(M - 2)
+        ])
+    else:
+        # Augment A and T without decay matrix
+        A_aug = np.vstack([
+            A,
+            row_norm,
+            row_bound_start,
+            row_bound_end,
+            np.sqrt(lambda_val) * D
+        ])
+        
+        T_aug = np.concatenate([
+            T,
+            [gamma],
+            [0.0],
+            [0.0],
+            np.zeros(M - 2)
+        ])
     
     # Solve NNLS
     S, _ = scipy.optimize.nnls(A_aug, T_aug)
@@ -441,6 +506,161 @@ def reconstruct_channel_spectrum_method2(step_info_list: list, energies_keV: np.
     return S_interp
 
 
+def reconstruct_joint_spectra(A_list: list, T_list: list, energies_list: list,
+                              lambda_smooth: float = 0.08, lambda_joint: float = 0.05,
+                              gamma: float = 20.0, beta: float = 10.0) -> list:
+    """
+    Method 3: Joint-NNLS (多电压联合正则化非负最小二乘法)
+    同时重构多个电压下的 X 射线能谱，通过跨电压能谱相似性约束进行联合求解，以抑制高能噪声和虚假峰。
+    
+    参数说明：
+    - A_list (list of np.ndarray): 每个电压的前向系统投影矩阵列表。
+      类型：list of np.ndarray (float)
+      含义：包含不同电压下对应标样透射映射矩阵的列表。
+      用法：传入 [A_200kV, A_220kV, ...] 列表。
+    - T_list (list of np.ndarray): 每个电压的实测透射率向量列表。
+      类型：list of np.ndarray (float)
+      含义：对应各电压下的测定透射值。
+      用法：传入 [T_200kV, T_220kV, ...] 列表。
+    - energies_list (list of np.ndarray): 每个电压对应的离散能量网格列表。
+      类型：list of np.ndarray (float)
+      含义：不同电压下的能量网格，如 200kV grid, 220kV grid。
+      用法：传入 [E_200kV, E_220kV, ...] 列表。
+    - lambda_smooth (float): 内部单能谱二阶差分平滑因子。
+      类型：float
+      含义：调节单个能谱平滑度的惩罚系数，默认为 0.08。
+    - lambda_joint (float): 跨电压联合相似性约束因子。
+      类型：float
+      含义：调节相邻电压之间重合能域处能谱强度差异的惩罚系数，默认为 0.05。
+    - gamma (float): 归一化约束权重。
+      类型：float
+      含义：保证每个能谱面积和为 1。
+    - beta (float): 边界归零和 Duane-Hunt 软衰减约束权重。
+      类型：float
+      含义：控制高低能两端快速归零的惩罚权重。
+      
+    返回：
+    - list of np.ndarray: 包含各电压下归一化重构能谱的列表。
+    """
+    K = len(A_list)
+    M_list = [len(e) for e in energies_list]
+    offset = [0] * (K + 1)
+    for k in range(K):
+        offset[k + 1] = offset[k] + M_list[k]
+        
+    M_total = offset[K]
+    
+    # 收集所有的增强方程行和目标值
+    data_rows = []
+    T_aug_parts = []
+    
+    # 1. 各个电压独立的数据拟合项
+    for k in range(K):
+        A_k = A_list[k]
+        N_k = A_k.shape[0]
+        row_block = np.zeros((N_k, M_total))
+        row_block[:, offset[k]:offset[k+1]] = A_k
+        data_rows.append(row_block)
+        T_aug_parts.append(T_list[k])
+        
+    # 2. 各个电压独立的归一化约束
+    for k in range(K):
+        row = np.zeros(M_total)
+        row[offset[k]:offset[k+1]] = gamma
+        data_rows.append(row.reshape(1, -1))
+        T_aug_parts.append([gamma])
+        
+    # 3. 各个电压独立的边界归零约束与软衰减约束
+    for k in range(K):
+        energies_k = energies_list[k]
+        M_k = M_list[k]
+        
+        # 边界点 (首尾)
+        row_start = np.zeros(M_total)
+        row_start[offset[k]] = beta
+        data_rows.append(row_start.reshape(1, -1))
+        T_aug_parts.append([0.0])
+        
+        row_end = np.zeros(M_total)
+        row_end[offset[k+1] - 1] = beta
+        data_rows.append(row_end.reshape(1, -1))
+        T_aug_parts.append([0.0])
+        
+        # Duane-Hunt 软截止衰减 (高能与低能端)
+        E_max = energies_k[-1]
+        E_thresh = 0.85 * E_max
+        E_min = energies_k[0]
+        E_low_thresh = 35.0
+        
+        for i in range(M_k):
+            E_i = energies_k[i]
+            if E_i > E_thresh:
+                row = np.zeros(M_total)
+                weight = beta * ((E_i - E_thresh) / (E_max - E_thresh)) ** 2
+                row[offset[k] + i] = weight
+                data_rows.append(row.reshape(1, -1))
+                T_aug_parts.append([0.0])
+            if E_i < E_low_thresh:
+                row = np.zeros(M_total)
+                weight = beta * ((E_low_thresh - E_i) / (E_low_thresh - E_min)) ** 2
+                row[offset[k] + i] = weight
+                data_rows.append(row.reshape(1, -1))
+                T_aug_parts.append([0.0])
+                
+    # 4. 各个电压独立的平滑约束 (二阶差分)
+    for k in range(K):
+        M_k = M_list[k]
+        if M_k > 2:
+            D_k = np.zeros((M_k - 2, M_k))
+            for i in range(M_k - 2):
+                D_k[i, i] = 1.0
+                D_k[i, i + 1] = -2.0
+                D_k[i, i + 2] = 1.0
+            
+            row_smooth = np.zeros((M_k - 2, M_total))
+            row_smooth[:, offset[k]:offset[k+1]] = np.sqrt(lambda_smooth) * D_k
+            data_rows.append(row_smooth)
+            T_aug_parts.append(np.zeros(M_k - 2))
+            
+    # 5. 跨电压联合相似性约束 (相邻电压重合能域处能谱强度差异惩罚)
+    for k in range(K - 1):
+        energies_k = energies_list[k]
+        M_k = M_list[k]
+        energies_next = energies_list[k+1]
+        
+        # 遍历前一个电压的所有能量仓，并在下一个电压寻找相同的能量仓
+        for i in range(M_k):
+            E_val = energies_k[i]
+            # 假设网格完全对齐
+            idx_next = np.where(np.abs(energies_next - E_val) < 1e-3)[0]
+            if len(idx_next) > 0:
+                j = idx_next[0]
+                row_joint = np.zeros(M_total)
+                # S_{k+1}(E_val) - S_k(E_val) = 0
+                row_joint[offset[k+1] + j] = np.sqrt(lambda_joint)
+                row_joint[offset[k] + i] = -np.sqrt(lambda_joint)
+                data_rows.append(row_joint.reshape(1, -1))
+                T_aug_parts.append([0.0])
+                
+    # 6. 拼接矩阵并调用 NNLS
+    A_aug = np.vstack(data_rows)
+    T_aug = np.concatenate(T_aug_parts)
+    
+    # 运行非负最小二乘
+    S_joint, _ = scipy.optimize.nnls(A_aug, T_aug)
+    
+    # 7. 拆分并分别进行归一化
+    S_list = []
+    for k in range(K):
+        S_k = S_joint[offset[k]:offset[k+1]]
+        sum_S = np.sum(S_k)
+        if sum_S > 0:
+            S_k = S_k / sum_S
+        S_list.append(S_k)
+        
+    return S_list
+
+
 # ==============================================================================
 # Feature Extraction Algorithms (Monoenergetic vs Spectrum-Integrated)
 # ==============================================================================
@@ -517,43 +737,13 @@ def solve_apd_acd_nonlinear(T_L, T_H, S_L, S_H, energies_keV):
         def equations(vars_val):
             apd_val, acd_val = vars_val
             exp_term = np.exp(-(apd_val * E_cube_inv + acd_val * fkn_vals))
-            pred_T_L = np.sum(S_L * exp_term)
-            pred_T_H = np.sum(S_H * exp_term)
-            return [pred_T_L - T_L, pred_T_H - T_H]
-            
-        # Initial guess using dynamic monoenergetic approximations
-        E_L_est = np.sum(S_L * energies_keV)
-        E_H_est = np.sum(S_H * energies_keV)
-        apd_init, acd_init = calculate_apd_acd_mono(T_L, T_H, E_L_est, E_H_est)
-        
-        res = scipy.optimize.root(equations, [apd_init, acd_init], method='hybr')
-        if res.success:
-            return res.x[0], res.x[1]
-        else:
-            return apd_init, acd_init
-    else:
-        # Array inputs
-        T_L_arr = np.array(T_L)
-        T_H_arr = np.array(T_H)
-        apd_res = []
-        acd_res = []
-        for tl, th in zip(T_L_arr, T_H_arr):
-            ap, ac = solve_apd_acd_nonlinear(tl, th, S_L, S_H, energies_keV)
-            apd_res.append(ap)
-            acd_res.append(ac)
-        return np.array(apd_res), np.array(acd_res)
-
-# ==============================================================================
-# Main Execution & Diagnostics Pipeline
-# ==============================================================================
-
 def main():
-    script_dir = os.path.dirname(os.path.abspath(__file__))
+    script_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     data_dir = os.path.join(script_dir, 'results/20260429_mask_generated_16bit/pixel_values')
     
-    # We will vary the number of Cu and Fe steps to be 1, 3, 5, 7, and 10 steps
+    # We will use exactly 4 steps for Cu and Fe during spectrum reconstruction
     # While fixing Al step wedge to use all 10 steps.
-    for cu_fe_max_steps in [1, 3, 5, 7, 10]:
+    for cu_fe_max_steps in [4]:
         output_dir = os.path.join(script_dir, f'results/thickness_decoupling/energy_hardening/spectrum_reconstruction/CuFe_{cu_fe_max_steps}steps')
         os.makedirs(output_dir, exist_ok=True)
         
@@ -567,252 +757,148 @@ def main():
         for f_type in FILTER_TYPES:
             results[f_type] = {}
             
-            # We will create a summary plot of spectra for this filter (Method 1 & 2 Comparison)
-            fig_spec, axes_spec = plt.subplots(1, 2, figsize=(14, 6))
-            fig_spec.suptitle(f"Reconstructed X-Ray Spectrum - Filter: {f_type} (CuFe {cu_fe_max_steps} steps)", fontsize=14, fontweight='bold')
+            # 1. 收集该滤片下所有电压的数据，以便运行 Method 3 (Joint-NNLS)
+            voltage_data_list = []
+            for voltage in VOLTAGES:
+                v_int = int(voltage.replace('kV', ''))
+                mats, thicks, T_L, T_H, step_info = load_transmission_data(f_type, voltage, data_dir, cu_fe_max_steps=cu_fe_max_steps)
+                if len(mats) == 0:
+                    continue
+                
+                energies = np.arange(15, v_int + 1e-3, 10.0)
+                A = build_system_matrix(mats, thicks, energies)
+                voltage_data_list.append({
+                    'voltage': voltage,
+                    'v_int': v_int,
+                    'mats': mats,
+                    'thicks': thicks,
+                    'T_L': T_L,
+                    'T_H': T_H,
+                    'energies': energies,
+                    'A': A
+                })
+                
+            if len(voltage_data_list) == 0:
+                print(f"[-] No step wedge data found for filter {f_type}. Skipping.")
+                continue
+                
+            print(f"[+] Starting Joint Reconstruction (Method 3: Joint-NNLS) for filter {f_type}...")
+            # 2. 分别为低能通道和高能通道运行 Method 3
+            A_list = [item['A'] for item in voltage_data_list]
+            T_L_list = [item['T_L'] for item in voltage_data_list]
+            T_H_list = [item['T_H'] for item in voltage_data_list]
+            energies_list = [item['energies'] for item in voltage_data_list]
+            
+            S_L_m3_list = reconstruct_joint_spectra(A_list, T_L_list, energies_list, lambda_smooth=0.08, lambda_joint=0.05)
+            S_H_m3_list = reconstruct_joint_spectra(A_list, T_H_list, energies_list, lambda_smooth=0.08, lambda_joint=0.05)
+            
+            # 3. 运行 Method 1，并保存/画图
+            fig_spec, axes_spec = plt.subplots(1, 2, figsize=(12, 5))
+            fig_spec.suptitle(f"Reconstructed X-Ray Spectrum - Filter: {f_type} (Solid: M1 NNLS, Dashed: M3 Joint-NNLS)", fontsize=13, fontweight='bold')
             axes_spec[0].set_title("Low-Energy Channel Spectrum $S_L(E)$")
             axes_spec[0].set_xlabel("Energy (keV)")
             axes_spec[0].set_ylabel("Intensity Fraction (normalized)")
             axes_spec[0].grid(True, linestyle='--', alpha=0.4)
+            axes_spec[0].set_yscale('log')
+            axes_spec[0].set_ylim(bottom=1e-4)
             
             axes_spec[1].set_title("High-Energy Channel Spectrum $S_H(E)$")
             axes_spec[1].set_xlabel("Energy (keV)")
             axes_spec[1].set_ylabel("Intensity Fraction (normalized)")
             axes_spec[1].grid(True, linestyle='--', alpha=0.4)
+            axes_spec[1].set_yscale('log')
+            axes_spec[1].set_ylim(bottom=1e-4)
             
-            # We will create a separate summary plot of spectra for this filter (Method 2 Only)
-            fig_spec_m2, axes_spec_m2 = plt.subplots(1, 2, figsize=(14, 6))
-            fig_spec_m2.suptitle(f"Reconstructed X-Ray Spectrum (Method 2: Difference) - Filter: {f_type} (CuFe {cu_fe_max_steps} steps)", fontsize=14, fontweight='bold')
-            axes_spec_m2[0].set_title("Low-Energy Channel Spectrum $S_L(E)$ (Method 2)")
-            axes_spec_m2[0].set_xlabel("Energy (keV)")
-            axes_spec_m2[0].set_ylabel("Intensity Fraction (normalized)")
-            axes_spec_m2[0].grid(True, linestyle='--', alpha=0.4)
-            
-            axes_spec_m2[1].set_title("High-Energy Channel Spectrum $S_H(E)$ (Method 2)")
-            axes_spec_m2[1].set_xlabel("Energy (keV)")
-            axes_spec_m2[1].set_ylabel("Intensity Fraction (normalized)")
-            axes_spec_m2[1].grid(True, linestyle='--', alpha=0.4)
-            
-            for voltage in VOLTAGES:
-                v_int = int(voltage.replace('kV', ''))
+            for idx, item in enumerate(voltage_data_list):
+                voltage = item['voltage']
+                v_int = item['v_int']
+                A = item['A']
+                T_L = item['T_L']
+                T_H = item['T_H']
+                energies = item['energies']
                 
-                # Load step data (limited for Cu/Fe, full 10 steps for Al)
-                mats, thicks, T_L, T_H, step_info = load_transmission_data(f_type, voltage, data_dir, cu_fe_max_steps=cu_fe_max_steps)
-                if len(mats) == 0:
-                    print(f"[-] No step wedge data found for {f_type} at {voltage}. Skipping.")
-                    continue
-                    
-                print(f"[+] Loaded {len(mats)} steps (CuFe={cu_fe_max_steps}) for {f_type} at {voltage}.")
+                # Method 1
+                S_L_m1 = reconstruct_channel_spectrum(A, T_L, energies, lambda_val=0.08)
+                S_H_m1 = reconstruct_channel_spectrum(A, T_H, energies, lambda_val=0.08)
                 
-                # Build energy grid
-                energies = np.arange(15, v_int + 1e-3, 5.0)
+                E_L_eff_m1 = np.sum(S_L_m1 * energies)
+                E_H_eff_m1 = np.sum(S_H_m1 * energies)
                 
-                # Build system matrix
-                A = build_system_matrix(mats, thicks, energies)
+                # Method 3
+                S_L_m3 = S_L_m3_list[idx]
+                S_H_m3 = S_H_m3_list[idx]
                 
-                # Solve for low and high energy spectra (Method 1: Regularized NNLS)
-                S_L = reconstruct_channel_spectrum(A, T_L, energies, lambda_val=0.005)
-                S_H = reconstruct_channel_spectrum(A, T_H, energies, lambda_val=0.005)
+                E_L_eff_m3 = np.sum(S_L_m3 * energies)
+                E_H_eff_m3 = np.sum(S_H_m3 * energies)
                 
-                # Solve for low and high energy spectra (Method 2: Adjacent thickness difference mapping)
-                S_L_m2 = reconstruct_channel_spectrum_method2(step_info, energies, v_int, 'low')
-                S_H_m2 = reconstruct_channel_spectrum_method2(step_info, energies, v_int, 'high')
-                
-                # Compute incident effective energies (d=0) for Method 1
-                E_L_eff = np.sum(S_L * energies)
-                E_H_eff = np.sum(S_H * energies)
-                
-                # Compute incident effective energies (d=0) for Method 2
-                E_L_eff_m2 = np.sum(S_L_m2 * energies)
-                E_H_eff_m2 = np.sum(S_H_m2 * energies)
-                
-                print(f"    -> Method 1: Reconstructed LE Spectrum E_eff = {E_L_eff:.2f} keV, HE Spectrum E_eff = {E_H_eff:.2f} keV")
-                print(f"    -> Method 2: Reconstructed LE Spectrum E_eff = {E_L_eff_m2:.2f} keV, HE Spectrum E_eff = {E_H_eff_m2:.2f} keV")
+                print(f"    [{voltage}] -> Method 1: LE E_eff={E_L_eff_m1:.1f} keV, HE E_eff={E_H_eff_m1:.1f} keV")
+                print(f"    [{voltage}] -> Method 3 (Joint-NNLS): LE E_eff={E_L_eff_m3:.1f} keV, HE E_eff={E_H_eff_m3:.1f} keV")
                 
                 results[f_type][voltage] = {
                     'energies_keV': energies.tolist(),
-                    'S_L': S_L.tolist(),
-                    'S_H': S_H.tolist(),
-                    'E_L_eff_keV': float(E_L_eff),
-                    'E_H_eff_keV': float(E_H_eff),
-                    'S_L_m2': S_L_m2.tolist(),
-                    'S_H_m2': S_H_m2.tolist(),
-                    'E_L_eff_m2_keV': float(E_L_eff_m2),
-                    'E_H_eff_m2_keV': float(E_H_eff_m2)
+                    'S_L': S_L_m1.tolist(),
+                    'S_H': S_H_m1.tolist(),
+                    'E_L_eff_keV': float(E_L_eff_m1),
+                    'E_H_eff_keV': float(E_H_eff_m1),
+                    # Method 3 (Joint-NNLS)
+                    'S_L_m3': S_L_m3.tolist(),
+                    'S_H_m3': S_H_m3.tolist(),
+                    'E_L_eff_m3_keV': float(E_L_eff_m3),
+                    'E_H_eff_m3_keV': float(E_H_eff_m3)
                 }
                 
-                # Plot spectra
-                color = plt.get_cmap('rainbow')( (v_int - 200) / 120.0 )
+                color = plt.get_cmap('rainbow')((v_int - 200) / 120.0)
                 # Method 1 is solid line
-                axes_spec[0].plot(energies, S_L, label=f"{voltage} M1 (E_eff={E_L_eff:.1f} keV)", color=color, linewidth=2)
-                # Method 2 is dashed line of the same color
-                axes_spec[0].plot(energies, S_L_m2, '--', label=f"{voltage} M2 (E_eff={E_L_eff_m2:.1f} keV)", color=color, linewidth=1.5, alpha=0.8)
+                axes_spec[0].plot(energies, np.maximum(S_L_m1, 1e-6), '-', label=f"{voltage} M1 ({E_L_eff_m1:.1f} keV)", color=color, linewidth=1.5)
+                axes_spec[1].plot(energies, np.maximum(S_H_m1, 1e-6), '-', label=f"{voltage} M1 ({E_H_eff_m1:.1f} keV)", color=color, linewidth=1.5)
                 
-                axes_spec[1].plot(energies, S_H, label=f"{voltage} M1 (E_eff={E_H_eff:.1f} keV)", color=color, linewidth=2)
-                axes_spec[1].plot(energies, S_H_m2, '--', label=f"{voltage} M2 (E_eff={E_H_eff_m2:.1f} keV)", color=color, linewidth=1.5, alpha=0.8)
+                # Method 3 is dashed line
+                axes_spec[0].plot(energies, np.maximum(S_L_m3, 1e-6), '--', label=f"{voltage} M3-Joint ({E_L_eff_m3:.1f} keV)", color=color, linewidth=1.5, alpha=0.8)
+                axes_spec[1].plot(energies, np.maximum(S_H_m3, 1e-6), '--', label=f"{voltage} M3-Joint ({E_H_eff_m3:.1f} keV)", color=color, linewidth=1.5, alpha=0.8)
                 
-                # Method 2 separate plot (solid lines representing Method 2 only)
-                axes_spec_m2[0].plot(energies, S_L_m2, label=f"{voltage} M2 (E_eff={E_L_eff_m2:.1f} keV)", color=color, linewidth=2)
-                axes_spec_m2[1].plot(energies, S_H_m2, label=f"{voltage} M2 (E_eff={E_H_eff_m2:.1f} keV)", color=color, linewidth=2)
-                
-                # Perform APD/ACD feature evaluation on Al, Fe, Cu steps to check linearity
-                # We will plot the comparison for 200kV and 280kV as examples
-                if voltage in ['200kV', '280kV']:
-                    fig_comp, axes_comp = plt.subplots(2, 3, figsize=(18, 10))
-                    fig_comp.suptitle(f"APD/ACD Linearity Comparison for {f_type} at {voltage} (CuFe {cu_fe_max_steps} steps)", fontsize=14, fontweight='bold', y=0.98)
-                    
-                    # Separate linearity comparison plot for Method 2
-                    fig_comp_m2, axes_comp_m2 = plt.subplots(2, 3, figsize=(18, 10))
-                    fig_comp_m2.suptitle(f"Method 2 APD/ACD Linearity and Fit for {f_type} at {voltage} (CuFe {cu_fe_max_steps} steps)", fontsize=14, fontweight='bold', y=0.98)
-                    
-                    # Material mapping for columns
-                    col_map = {'Al': 0, 'Fe': 1, 'Cu': 2}
-                    
-                    for mat_symbol in ['Al', 'Fe', 'Cu']:
-                        col = col_map[mat_symbol]
-                        
-                        # Extract step indices for this material
-                        mat_indices = [i for i, x in enumerate(mats) if x == mat_symbol]
-                        if not mat_indices:
-                            continue
-                        
-                        d_mm = np.array([step_info[i]['thickness_mm'] for i in mat_indices])
-                        t_L_sub = np.array([T_L[i] for i in mat_indices])
-                        t_H_sub = np.array([T_H[i] for i in mat_indices])
-                        
-                        # 1. Method 1: Static Monoenergetic (58 / 105 keV)
-                        apd_static, acd_static = calculate_apd_acd_mono(t_L_sub, t_H_sub, E_L=58.0, E_H=105.0)
-                        
-                        # 2. Method 2: Dynamic Incident Monoenergetic (E_L_eff, E_H_eff)
-                        apd_dyn, acd_dyn = calculate_apd_acd_mono(t_L_sub, t_H_sub, E_L=E_L_eff, E_H=E_H_eff)
-                        
-                        # 3. Method 3: Spectrum-Integrated Nonlinear Optimization (Method 1 Spectrum)
-                        apd_nl, acd_nl = solve_apd_acd_nonlinear(t_L_sub, t_H_sub, S_L, S_H, energies)
-                        
-                        # 4. Method 4: Spectrum-Integrated Nonlinear Optimization (Method 2 Spectrum)
-                        apd_nl_m2, acd_nl_m2 = solve_apd_acd_nonlinear(t_L_sub, t_H_sub, S_L_m2, S_H_m2, energies)
-                        
-                        # Fit lines through origin to measure linearity (R2 through origin)
-                        def fit_origin_r2(x, y):
-                            slope = np.sum(x * y) / np.sum(x ** 2)
-                            y_pred = slope * x
-                            r2 = 1 - np.sum((y - y_pred)**2) / np.sum((y - np.mean(y))**2)
-                            return slope, r2
-                        
-                        # Fit APD
-                        slope_ap_static, r2_ap_static = fit_origin_r2(d_mm, apd_static)
-                        slope_ap_dyn, r2_ap_dyn = fit_origin_r2(d_mm, apd_dyn)
-                        slope_ap_nl, r2_ap_nl = fit_origin_r2(d_mm, apd_nl)
-                        slope_ap_nl_m2, r2_ap_nl_m2 = fit_origin_r2(d_mm, apd_nl_m2)
-                        
-                        # Fit ACD
-                        slope_ac_static, r2_ac_static = fit_origin_r2(d_mm, acd_static)
-                        slope_ac_dyn, r2_ac_dyn = fit_origin_r2(d_mm, acd_dyn)
-                        slope_ac_nl, r2_ac_nl = fit_origin_r2(d_mm, acd_nl)
-                        slope_ac_nl_m2, r2_ac_nl_m2 = fit_origin_r2(d_mm, acd_nl_m2)
-                        
-                        # Subplot (0, col) of Comparison plot: APD vs Thickness
-                        ax_ap = axes_comp[0, col]
-                        ax_ap.set_title(f"{mat_symbol} APD vs Thickness", fontsize=11)
-                        ax_ap.plot(d_mm, apd_static, 'ro-', label=f"Static 58/105 ($R^2$={r2_ap_static:.4f})")
-                        ax_ap.plot(d_mm, apd_dyn, 'gs-', label=f"Dyn {E_L_eff:.1f}/{E_H_eff:.1f} ($R^2$={r2_ap_dyn:.4f})")
-                        ax_ap.plot(d_mm, apd_nl, 'b^-', label=f"Spectrum NL M1 ($R^2$={r2_ap_nl:.4f})")
-                        ax_ap.set_xlabel("Thickness $d$ (mm)")
-                        ax_ap.set_ylabel("$apd$")
-                        ax_ap.grid(True, linestyle='--', alpha=0.4)
-                        ax_ap.legend(fontsize='x-small', loc='best')
-                        
-                        # Subplot (1, col) of Comparison plot: ACD vs Thickness
-                        ax_ac = axes_comp[1, col]
-                        ax_ac.set_title(f"{mat_symbol} ACD vs Thickness", fontsize=11)
-                        ax_ac.plot(d_mm, acd_static, 'ro-', label=f"Static 58/105 ($R^2$={r2_ac_static:.4f})")
-                        ax_ac.plot(d_mm, acd_dyn, 'gs-', label=f"Dyn {E_L_eff:.1f}/{E_H_eff:.1f} ($R^2$={r2_ac_dyn:.4f})")
-                        ax_ac.plot(d_mm, acd_nl, 'b^-', label=f"Spectrum NL M1 ($R^2$={r2_ac_nl:.4f})")
-                        ax_ac.set_xlabel("Thickness $d$ (mm)")
-                        ax_ac.set_ylabel("$acd$")
-                        ax_ac.grid(True, linestyle='--', alpha=0.4)
-                        ax_ac.legend(fontsize='x-small', loc='best')
-                        
-                        # Subplot (0, col) of Method 2 plot: APD vs Thickness
-                        ax_ap_m2 = axes_comp_m2[0, col]
-                        ax_ap_m2.set_title(f"{mat_symbol} APD vs Thickness (M2)", fontsize=11)
-                        ax_ap_m2.plot(d_mm, apd_nl_m2, 'm*-', label=f"Spectrum NL M2 ($R^2$={r2_ap_nl_m2:.4f})")
-                        ax_ap_m2.plot(d_mm, slope_ap_nl_m2 * d_mm, 'k--', label=f"Fit (slope={slope_ap_nl_m2:.2e})")
-                        ax_ap_m2.set_xlabel("Thickness $d$ (mm)")
-                        ax_ap_m2.set_ylabel("$apd$")
-                        ax_ap_m2.grid(True, linestyle='--', alpha=0.4)
-                        ax_ap_m2.legend(fontsize='x-small', loc='best')
-                        
-                        # Subplot (1, col) of Method 2 plot: ACD vs Thickness
-                        ax_ac_m2 = axes_comp_m2[1, col]
-                        ax_ac_m2.set_title(f"{mat_symbol} ACD vs Thickness (M2)", fontsize=11)
-                        ax_ac_m2.plot(d_mm, acd_nl_m2, 'm*-', label=f"Spectrum NL M2 ($R^2$={r2_ac_nl_m2:.4f})")
-                        ax_ac_m2.plot(d_mm, slope_ac_nl_m2 * d_mm, 'k--', label=f"Fit (slope={slope_ac_nl_m2:.2e})")
-                        ax_ac_m2.set_xlabel("Thickness $d$ (mm)")
-                        ax_ac_m2.set_ylabel("$acd$")
-                        ax_ac_m2.grid(True, linestyle='--', alpha=0.4)
-                        ax_ac_m2.legend(fontsize='x-small', loc='best')
-                        
-                    fig_comp.tight_layout()
-                    comp_fig_path = os.path.join(output_dir, f"apd_acd_linearity_{f_type}_{voltage}.png")
-                    fig_comp.savefig(comp_fig_path, dpi=150)
-                    plt.close(fig_comp)
-                    print(f"    -> Saved linearity comparison plot: {comp_fig_path}")
-                    
-                    fig_comp_m2.tight_layout()
-                    comp_fig_path_m2 = os.path.join(output_dir, f"apd_acd_linearity_method2_{f_type}_{voltage}.png")
-                    fig_comp_m2.savefig(comp_fig_path_m2, dpi=150)
-                    plt.close(fig_comp_m2)
-                    print(f"    -> Saved Method 2 linearity plot: {comp_fig_path_m2}")
-                    
-            axes_spec[0].legend(fontsize='x-small', loc='upper right')
-            axes_spec[1].legend(fontsize='x-small', loc='upper right')
+            axes_spec[0].legend(fontsize='xx-small', loc='upper right')
+            axes_spec[1].legend(fontsize='xx-small', loc='upper right')
             fig_spec.tight_layout()
             spec_fig_path = os.path.join(output_dir, f"reconstructed_spectra_{f_type}.png")
             fig_spec.savefig(spec_fig_path, dpi=200)
             plt.close(fig_spec)
             print(f"[+] Saved spectra plots for filter {f_type}: {spec_fig_path}")
             
-            axes_spec_m2[0].legend(fontsize='x-small', loc='upper right')
-            axes_spec_m2[1].legend(fontsize='x-small', loc='upper right')
-            fig_spec_m2.tight_layout()
-            spec_fig_path_m2 = os.path.join(output_dir, f"reconstructed_spectra_method2_{f_type}.png")
-            fig_spec_m2.savefig(spec_fig_path_m2, dpi=200)
-            plt.close(fig_spec_m2)
-            print(f"[+] Saved spectra plots for filter {f_type} (Method 2): {spec_fig_path_m2}")
+            plt.close('all')
+            gc.collect()
             
-        # Save the reconstructed spectra parameters to JSON
+        # 保存重隔出的有效能谱参数到 JSON 文件中
         json_path = os.path.join(output_dir, 'reconstructed_spectra_summary.json')
         with open(json_path, 'w', encoding='utf-8') as f:
             json.dump(results, f, indent=4, ensure_ascii=False)
         print(f"[+] Saved reconstructed spectra parameters JSON: {json_path}")
         
-        # Let's generate a summary plot showing incident effective energy (E_L, E_H) vs Voltage for both filters
+        # 绘制有效能量对比图
         fig_eff, axes_eff = plt.subplots(1, 2, figsize=(15, 6))
         fig_eff.suptitle("Effective Energy derived from Reconstructed Spectra vs Voltage", fontsize=14, fontweight='bold')
         
         for f_idx, f_type in enumerate(FILTER_TYPES):
             ax = axes_eff[f_idx]
             voltages_f = []
-            E_L_effs = []
-            E_H_effs = []
-            E_L_effs_m2 = []
-            E_H_effs_m2 = []
+            E_L_effs_m1 = []
+            E_H_effs_m1 = []
+            E_L_effs_m3 = []
+            E_H_effs_m3 = []
             
             for voltage in VOLTAGES:
                 if voltage in results[f_type]:
                     voltages_f.append(int(voltage.replace('kV', '')))
-                    E_L_effs.append(results[f_type][voltage]['E_L_eff_keV'])
-                    E_H_effs.append(results[f_type][voltage]['E_H_eff_keV'])
-                    E_L_effs_m2.append(results[f_type][voltage]['E_L_eff_m2_keV'])
-                    E_H_effs_m2.append(results[f_type][voltage]['E_H_eff_m2_keV'])
+                    E_L_effs_m1.append(results[f_type][voltage]['E_L_eff_keV'])
+                    E_H_effs_m1.append(results[f_type][voltage]['E_H_eff_keV'])
+                    E_L_effs_m3.append(results[f_type][voltage]['E_L_eff_m3_keV'])
+                    E_H_effs_m3.append(results[f_type][voltage]['E_H_eff_m3_keV'])
                     
             if voltages_f:
-                ax.plot(voltages_f, E_L_effs, 'o-', label="LE Channel $E_{L, eff}$ (M1)", color='#4A90E2', linewidth=2)
-                ax.plot(voltages_f, E_L_effs_m2, 'o--', label="LE Channel $E_{L, eff}$ (M2)", color='#4A90E2', linewidth=1.5, alpha=0.8)
-                ax.plot(voltages_f, E_H_effs, 's-', label="HE Channel $E_{H, eff}$ (M1)", color='#E28743', linewidth=2)
-                ax.plot(voltages_f, E_H_effs_m2, 's--', label="HE Channel $E_{H, eff}$ (M2)", color='#E28743', linewidth=1.5, alpha=0.8)
-                # Reference lines for the static 58/105 keV
+                ax.plot(voltages_f, E_L_effs_m1, 'o-', label="LE $E_{L, eff}$ (M1)", color='#4A90E2', linewidth=2)
+                ax.plot(voltages_f, E_H_effs_m1, 's-', label="HE $E_{H, eff}$ (M1)", color='#E28743', linewidth=2)
+                ax.plot(voltages_f, E_L_effs_m3, 'o--', label="LE $E_{L, eff}$ (M3: Joint-NNLS)", color='#4A90E2', linewidth=1.5, alpha=0.8)
+                ax.plot(voltages_f, E_H_effs_m3, 's--', label="HE $E_{H, eff}$ (M3: Joint-NNLS)", color='#E28743', linewidth=1.5, alpha=0.8)
+                # 绘制 58/105 keV 静态对照参考线
                 ax.axhline(58.0, color='#4A90E2', linestyle=':', alpha=0.5, label="Static E_L (58 keV)")
                 ax.axhline(105.0, color='#E28743', linestyle=':', alpha=0.5, label="Static E_H (105 keV)")
                 

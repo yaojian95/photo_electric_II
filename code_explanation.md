@@ -8,6 +8,13 @@ This workspace focus on validating XRT image quality and extracting standard sam
 
 ## Local Scripts
 
+### `apd_acd_pipeline/` (Alvarez-Macovski & Spectrum Calibration Pipeline)
+- **Purpose**: 包含双能光电效应 (APD) 与康普顿散射 (ACD) 特征计算、能谱重建以及矿石物理特征反解的中央管道。
+- **Components**:
+    - `get_apd_acd.py`: 物理计算与 SIRZ 系统标定工具。支持 Static（静态）、Dyn（动态）与 M1（连续能谱积分）三种算法提取 apd/acd。
+    - `reconstruct_spectrum.py`: X 射线管出射有效能谱重建求解器，基于已知厚度梯度的阶梯块在各电压下的透射率进行 NNLS 反演（默认能量 bin 宽度为 10.0 keV，平滑因子为 0.08，结合 Duane-Hunt 渐进物理截止约束抑制高能多重峰与 0 值）。
+    - `calculate_ores_properties.py`: 针对 114 块标样圆盘（`0325_input.pkl`），通过引入重建能谱与标定系统常数 $(K_1, g, \nu)$ 解算像素级 APD/ACD 特征，反算各矿石的代数有效原子序数 ($Z_e$) 和电子密度 ($\rho_e$)，并提供 `plot_ze_comparison` 绘制反算 $Z_e$ 与基于元素品位加权的理论有效原子序数 $Z_{eff}$ 的散点对比图。
+
 ### `contour_app/` (Desktop Application)
 - **Purpose**: A standalone GUI tool for interactive contour extraction and parameter tuning.
 - **Components**:
@@ -60,6 +67,19 @@ This workspace focus on validating XRT image quality and extracting standard sam
     - `calculate_mu_H_d(low, high, I0_low=204.293, I0_high=204.199)`: 
         - 计算高能对数衰减厚度值 $\mu_H \cdot d = \ln(I0\_high / high)$。
         - 参数同 `calculate_apd`。
+    - `calculate_apd_acd_mono(T_L, T_H, E_L, E_H)`:
+        - 使用双单能近似代数公式计算 APD 和 ACD 特征。
+        - **参数解释**：
+            - `T_L` (float 或 np.ndarray): 低能通道透射率。
+            - `T_H` (float 或 np.ndarray): 高能通道透射率。
+            - `E_L` (float): 低能等效能量，单位 keV。
+            - `E_H` (float): 高能等效能量，单位 keV。
+    - `solve_apd_acd_nonlinear(T_L, T_H, S_L, S_H, energies_keV)`:
+        - 结合能谱分布通过 root 寻优求解 Alvarez-Macovski 积分方程组，反解出 APD 与 ACD。
+        - **参数解释**：
+            - `T_L`, `T_H` (float 或 np.ndarray): 实测低能与高能透射率。
+            - `S_L`, `S_H` (np.ndarray): 归一化低能与高能有效能谱分布。
+            - `energies_keV` (np.ndarray): 对应的能量网格数组，单位 keV。
     - `run_step_apd_acd_analysis(include_0331=True, plot_details=True, output_dir='results/thickness_decoupling/apd_acd_analysis')`: 
         - 核心分析调度主函数。批量启动物理算子解算、2x2物理剖析大图生成、以及多电压 Bulk 系数依赖曲线的生成，并将最终的统计序列持久化为 JSON。
         - 参数 `include_0331`: 0.6mm 下是否并入历史的 0331 阶梯数据点；`plot_details`: 是否绘制各电压/滤片组合的 2x2 深度大图；`output_dir`: 指定的落地输出目录。
@@ -79,6 +99,17 @@ This workspace focus on validating XRT image quality and extracting standard sam
             - `voltage` (str): 电压。
             - `colors` (dict): 颜色配置映射。
             - `save_path` (str): 图表落地磁盘路径。
+    - `_plot_calibration_fit(voltage_data, K1, g, nu, step_index, f_type, voltage, save_path)`:
+        - 绘制并保存对数线性拟合关系图 (ln(ap/ac) vs ln(Z))。
+        - **参数解释**：
+            - `voltage_data` (dict): 阶段统计数据字典。
+            - `K1` (float): 电子密度标定常数。
+            - `g` (float): 有效原子序数校准系数。
+            - `nu` (float): 有效原子序数幂次系数。
+            - `step_index` (int): 阶梯标样厚度索引。
+            - `f_type` (str): 滤片厚度。
+            - `voltage` (str): 管电压。
+            - `save_path` (str): 图片保存路径。
     - `_plot_apd_acd_histograms(voltage_data, f_type, voltage, colors, save_path)`:
         - APD & ACD 像素级原始分布直方图独立绘制子模块。**将各材料（Cu, Fe, Al）在所有厚度阶梯下的全部有效像素的原始计算物理特征分别提取出来，绘制为独立的 $apd$ 直方图与 $acd$ 直方图大图**，保存为独立的分析结果图，完全不修改、不污染原来的 2x2 剖析折线大图。
         - **参数解释**：
@@ -94,7 +125,7 @@ This workspace focus on validating XRT image quality and extracting standard sam
     1. 动态过滤各阶梯的核心像素，剔除饱和与非有效区间。
     2. 计算像素级 $apd$ 与 $acd$ 独立物理贡献，规避非均匀介质在宏观均值上的 Jensen 不等式误差。
     3. 生成 2x2 深度分析大图，从 $apd$/$acd$ 与物理厚度 $d$ 的严格线性映射、特征空间轨迹、以及 $Z_{eff}$ 的硬化漂移对系统进行全方位评估。
-    4. 提取各电压下的 bulk 材料衰减比值，汇总为随管电压变化的能量相关特性图，并将特征数据集序列化为 JSON 导出。
+    4. 提取各电压下的 bulk 材料衰减比值，汇总为合并滤片（0.6mm + 1.2mm）随管电压变化的能量相关特性图，并将特征数据集序列化为 JSON 导出。
 
 ### `utils_II.py`
 - **Purpose**: Local wrapper for dual-energy XRT processing.
@@ -303,21 +334,10 @@ This workspace focus on validating XRT image quality and extracting standard sam
     - `reconstruct_channel_spectrum_method2(step_info_list, energies_keV, voltage_kv, channel='low')`:
         - **核心逻辑**: 【方法二】基于相邻阶梯透射率差值 $\Delta T_j = T_j - T_{j+1}$ 映射到其敏感带通峰值能量 $E^*_j = \mu^{-1}(\ln(d_{j+1}/d_j)/(d_{j+1}-d_j))$ 的能谱估算与 PCHIP 插值归一化算法。
         - **参数解释**:
-            - `step_info_list` (list of dict): 各阶梯的物理信息与测量透射率明细字典列表。
+            - `step_info_list` (list of dict): 各阶梯 of 物理信息与测量透射率明细字典列表。
             - `energies_keV` (np.ndarray): 重建能谱的目标能量网格数组。
             - `voltage_kv` (float): 射线管的最大管电压（能量仓上限），单位 kV。
             - `channel` (str): 电能通道，可选 `'low'` 或 `'high'`。
-    - `calculate_apd_acd_mono(T_L, T_H, E_L, E_H)`:
-        - **核心逻辑**: 基于经典的低/高双单色能量 $E_L, E_H$ 方程组，采用代数方法直接解算 APD 与 ACD 特征。
-        - **参数解释**:
-            - `T_L`, `T_H` (float 或 np.ndarray): 实测的低能与高能通道透射率。
-            - `E_L`, `E_H` (float): 设定的低能与高能等效单能点，单位 keV。
-    - `solve_apd_acd_nonlinear(T_L, T_H, S_L, S_H, energies_keV)`:
-        - **核心逻辑**: 结合重建得出的低高能连续积分谱 $S_L, S_H$，调用 `scipy.optimize.root` 求解非线性二元超越方程组，逆向求出解耦能谱硬化漂移后的光电面密度 $apd$ 与康普顿面密度 $acd$。
-        - **参数解释**:
-            - `T_L`, `T_H` (float 或 np.ndarray): 实测低能与高能透射率.
-            - `S_L`, `S_H` (np.ndarray): 重建的归一化低能与高能有效能谱分布.
-            - `energies_keV` (np.ndarray): 对应的能量网格数组，单位 keV.
 
 ### `predict_disk_Z.py`
 - **Purpose**: Fits Model 2 (multivariate polynomial) and generates heatmaps and histograms for predicted atomic numbers (Z) of disks.
@@ -485,6 +505,55 @@ This workspace focus on validating XRT image quality and extracting standard sam
     3. 遍历 Excel 指定 Sheet（如 `0514氧化铜`）的每一行，将 Column A（第 1 列）的单元格值转换为整数与 CSV 序号匹配。
     4. 匹配成功后，将 CSV 中的对应品位填入该行的 `D` 到 `H` 列（即第 4 到 8 列，对应正面品位），同时将 CSV 的测试序号填入 `C` 列（第 3 列，XRF编号）。如果某项数据在 CSV 中缺失（NaN），则在 Excel 中写入 `None` 以清空单元格。
     5. 调用 `wb.save(excel_path)` 写入并保存 Excel 更改。
+
+### `pkl_reader/reader_app.py`
+- **Purpose**: 一个功能丰富的跨平台 PKL 文件结构与数据细节可视化阅读器，基于 CustomTkinter 构建。支持加载任意 PKL 文件、解析多层嵌套对象（字典、列表等）、提取 Numpy 数组和 Pandas Dataframe 进行数学统计描述、可视化呈现二维表格及 1D/2D 数值数组的可视化 Matplotlib 图表。
+- **Functions**:
+    - `__init__()`: 
+        - **核心逻辑**: 初始化 GUI 主窗口，配置窗口尺寸、居中位置以及数据缓存。
+    - `setup_ui()`: 
+        - **核心逻辑**: 搭建控制栏、数据层级目录树（Treeview）、选项卡（概览、文本、二维表格、绘图）及底部状态栏。
+    - `open_file()`: 
+        - **核心逻辑**: 弹出文件选择对话框，用户选中文件后调用加载函数。
+    - `load_pkl_file(filepath)`: 
+        - **核心逻辑**: 反序列化读取 PKL 文件并调用 populate 方法构建左侧结构树。
+        - **参数解释**：
+            - `filepath` (str): PKL 文件的绝对或相对路径。
+    - `populate_tree_node(parent, name, data)`: 
+        - **核心逻辑**: 递归解析 Python 数据结构并将其节点化插入至层级 Treeview 控件中。
+        - **参数解释**：
+            - `parent` (str): 父节点 ID。
+            - `name` (str): 节点名称（字典键或列表索引）。
+            - `data` (any): 节点代表的原始数据对象。
+    - `on_tree_select(event)`: 
+        - **核心逻辑**: 节点选中响应，分发数据进行统计展示、文本美化、表格渲染与数据绘图。
+        - **参数解释**：
+            - `event` (tk.Event): 触发事件对象。
+    - `update_info_panel(data)`: 
+        - **核心逻辑**: 计算并输出所选节点的基础物理与数学统计指标（如均值、最大值、标准差等）。
+        - **参数解释**：
+            - `data` (any): 待统计概览的数据对象。
+    - `update_detail_text_panel(data)`: 
+        - **核心逻辑**: pretty-print 美化文本或以 DataFrame.head 形式输出限制长度的文本细节。
+        - **参数解释**：
+            - `data` (any): 待展示的文本或数据对象。
+    - `update_table_panel(data)`: 
+        - **核心逻辑**: 若为二维数组或 DataFrame，提取前 300 行并在 Tkinter Table 表格网格中显示。
+        - **参数解释**：
+            - `data` (any): 二维表格、矩阵或数据列。
+    - `update_plot_panel(data)`: 
+        - **核心逻辑**: 检查数据是否可绘图。若是一维或多维数值型数组，使用 Matplotlib 绘制折线趋势、分布直方图或热图并嵌入 Tkinter 界面。
+        - **参数解释**：
+            - `data` (any): 数值型数组、序列或 DataFrame 对象。
+    - `export_current_data()`: 
+        - **核心逻辑**: 将当前选中的节点数据导出为外部 CSV 表格或纯文本 TXT 配置文件。
+
+### `pkl_reader/build.bat`
+- **Purpose**: 用于将 `reader_app.py` 一键打包成免安装 `.exe` 文件的批处理脚本。
+- **Workflow**:
+    1. 自动调用 pip 安装 `customtkinter`、`pyinstaller`、`matplotlib` 等所需包。
+    2. 执行 `pyinstaller` 打包命令。为了解决 Anaconda 环境下 `torchaudio` 库因缺失部分 DLL 入口导致打包进程报错中断的问题，在打包指令中添加了 `--exclude-module torchaudio --exclude-module torch --exclude-module torchvision` 参数，完全绕过与音频、神经网络库相关的多余二进制扫描，确保纯净安全打包。
+
 
 
 ## 2026-05-29

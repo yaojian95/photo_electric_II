@@ -5,3 +5,5 @@
 *.pdf
 /contour_app
 *.json
+/pkl_reader
+*.zip
