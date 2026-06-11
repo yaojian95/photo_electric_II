@@ -33,8 +33,8 @@ def calculate_ores_properties_pipeline(
       用法：'200kV' 或 '280kV'。
     - method (str): 计算 APD/ACD 特征的方法。
       类型：str
-      含义：可选项有 'Static'（静态单能近似）、'Dyn'（动态单能近似）、'M1'（连续能谱积分法）。
-      用法：'M1'。
+      含义：可选项有 'Static'（静态单能近似）、'Dyn'（动态单能近似）、'M1'（连续能谱积分法）、'ChenWen'（陈文反演能谱积分法）。
+      用法：'M1' 或 'ChenWen'。
       
     返回：
     - pd.DataFrame: 合并计算出的 Ze_mean, Ze_std, rho_e_mean, rho_e_std 后的完整矿石 DataFrame。
@@ -71,21 +71,40 @@ def calculate_ores_properties_pipeline(
     high_pixels_series = d[0][1]  # 高能像素 Series (长度 114)
     info_df = d[1].copy()         # 化验 DataFrame (长度 114)
     
-    # 3. 载入 Method 1 重建能谱以获取能谱分布与网格
-    spectra_path = os.path.join(script_dir, f"results/thickness_decoupling/energy_hardening/spectrum_reconstruction/CuFe_4steps/reconstructed_spectra_summary.json")
-    if not os.path.exists(spectra_path):
-        raise FileNotFoundError(f"未找到能谱重建总结文件：{spectra_path}。请先运行 reconstruct_spectrum.py！")
-        
-    with open(spectra_path, "r", encoding="utf-8") as f:
-        spectra_data = json.load(f)
-        
-    try:
-        spec_info = spectra_data[filter_type][voltage]
-        S_L = np.array(spec_info["S_L"])
-        S_H = np.array(spec_info["S_H"])
-        energies = np.array(spec_info["energies_keV"])
-    except KeyError:
-        raise KeyError(f"能谱数据中未找到对应配置：{filter_type} -> {voltage}")
+    # 3. 载入重建能谱以获取能谱分布与网格
+    if method == "ChenWen":
+        chenwen_csv_path = os.path.join(script_dir, "chenwen/invsp_results", voltage, "reconstructed_spectra.csv")
+        if not os.path.exists(chenwen_csv_path):
+            raise FileNotFoundError(f"未找到陈文反演能谱文件：{chenwen_csv_path}")
+        try:
+            cw_df = pd.read_csv(chenwen_csv_path)
+            energies = cw_df['energy_keV'].values
+            S_L = cw_df['low'].values
+            if filter_type == '0.6mm':
+                S_H = cw_df['high_0.6mm'].values
+            else:
+                S_H = cw_df['high_1.2mm'].values
+            
+            # 归一化能谱分布
+            S_L = S_L / max(np.sum(S_L), 1e-12)
+            S_H = S_H / max(np.sum(S_H), 1e-12)
+        except Exception as e:
+            raise RuntimeError(f"加载陈文反演能谱失败: {e}")
+    else:
+        spectra_path = os.path.join(script_dir, f"results/thickness_decoupling/energy_hardening/spectrum_reconstruction/CuFe_4steps/reconstructed_spectra_summary.json")
+        if not os.path.exists(spectra_path):
+            raise FileNotFoundError(f"未找到能谱重建总结文件：{spectra_path}。请先运行 reconstruct_spectrum.py！")
+            
+        with open(spectra_path, "r", encoding="utf-8") as f:
+            spectra_data = json.load(f)
+            
+        try:
+            spec_info = spectra_data[filter_type][voltage]
+            S_L = np.array(spec_info["S_L"])
+            S_H = np.array(spec_info["S_H"])
+            energies = np.array(spec_info["energies_keV"])
+        except KeyError:
+            raise KeyError(f"能谱数据中未找到对应配置：{filter_type} -> {voltage}")
         
     I0 = 52428.0  # 16位图像背景基准值
     results = []
@@ -112,7 +131,7 @@ def calculate_ores_properties_pipeline(
             continue
             
         # a. 解算像素级 apd 和 acd 特征值
-        if method == "M1":
+        if method in ["M1", "ChenWen"]:
             apd_arr, acd_arr = get_apd_acd.solve_apd_acd_nonlinear(T_L, T_H, S_L, S_H, energies)
         else:
             # 兼容非连续能谱积分的常规 Dyn 或 Static 近似
@@ -169,7 +188,7 @@ def calculate_ores_properties_pipeline(
     final_df = final_df.rename(columns=rename_cols)
     return final_df
 
-def plot_ze_comparison(df: pd.DataFrame, save_path: str) -> None:
+def plot_ze_comparison(df: pd.DataFrame, save_path: str, method: str = "M1") -> None:
     """
     绘制并计算有效原子序数 Ze_mean 与理论有效原子序数 Theoretical_Zeff 的对比散点图。
     
@@ -182,6 +201,10 @@ def plot_ze_comparison(df: pd.DataFrame, save_path: str) -> None:
       类型：str
       含义：生成的 PNG 图表路径。
       用法：传入合法的物理路径。
+    - method (str): 计算特征的方法名称。
+      类型：str
+      含义：可选方法名如 'M1' 或 'ChenWen' 等，用于在 Y 轴标注。
+      用法：传入 'M1' 或 'ChenWen'。
     """
     import matplotlib.pyplot as plt
     from scipy.stats import pearsonr
@@ -212,7 +235,7 @@ def plot_ze_comparison(df: pd.DataFrame, save_path: str) -> None:
     
     plt.title("Calculated $Z_e$ vs Theoretical $Z_{eff}$ (0325 Yinshan Ores)", fontsize=13, fontweight='bold')
     plt.xlabel("Theoretical $Z_{eff}$ ($w_{Cu} \cdot 29 + w_{Fe} \cdot 26 + w_{S} \cdot 16 + (1 - w_{Cu} - w_{Fe} - w_{S}) \cdot 11$)", fontsize=10)
-    plt.ylabel("Calculated $Z_e$ (M1 Spectrum-Integrated)", fontsize=11)
+    plt.ylabel(f"Calculated $Z_e$ ({method} Spectrum-Integrated)", fontsize=11)
     plt.grid(True, linestyle='--', alpha=0.5)
     plt.xlim(lims)
     plt.ylim(lims)
@@ -230,37 +253,40 @@ def plot_ze_comparison(df: pd.DataFrame, save_path: str) -> None:
 
 
 if __name__ == "__main__":
-    try:
-        # 示例运行：使用 0.6mm 滤片 200kV 射线管 M1 方法反算
-        final_df = calculate_ores_properties_pipeline(
-            pickle_path=r"E:\multi_source_info\data_dir\0325_input.pkl",
-            filter_type="0.6mm",
-            voltage="200kV",
-            method="M1"
-        )
-        
-        # 确保 Theoretical_Zeff 被正确计算并加入到 dataframe 中
-        w_cu = final_df['Cu_grade'] / 100.0
-        w_fe = final_df['Fe_grade'] / 100.0
-        w_s = final_df['S_grade'] / 100.0
-        w_gangue = np.clip(1.0 - w_cu - w_fe - w_s, 0.0, 1.0)
-        final_df['Theoretical_Zeff'] = w_cu * 29.0 + w_fe * 26.0 + w_s * 16.0 + w_gangue * 11.0
+    # 动态确定工作区根目录
+    script_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    
+    # 运行 M1 与 ChenWen 两种方法进行对比
+    for m in ["M1", "ChenWen"]:
+        try:
+            print(f"\n==================== 运行方法: {m} ====================")
+            final_df = calculate_ores_properties_pipeline(
+                pickle_path=r"E:\multi_source_info\data_dir\0325_input.pkl",
+                filter_type="0.6mm",
+                voltage="200kV",
+                method=m
+            )
+            
+            # 确保 Theoretical_Zeff 被正确计算并加入到 dataframe 中
+            w_cu = final_df['Cu_grade'] / 100.0
+            w_fe = final_df['Fe_grade'] / 100.0
+            w_s = final_df['S_grade'] / 100.0
+            w_gangue = np.clip(1.0 - w_cu - w_fe - w_s, 0.0, 1.0)
+            final_df['Theoretical_Zeff'] = w_cu * 29.0 + w_fe * 26.0 + w_s * 16.0 + w_gangue * 11.0
 
-        print("\n[+] 计算成功！前 5 行数据预览：")
-        cols_to_show = ["Cu_grade", "Fe_grade", "Mean_thickness", "Ze_mean", "Theoretical_Zeff", "rho_e_mean"]
-        print(final_df[cols_to_show].head())
-        
-        script_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        
-        # 绘制 Z_e vs Z_eff 对比图
-        comparison_plot_path = os.path.join(script_dir, "results/thickness_decoupling/0325_ores_ze_vs_zeff.png")
-        plot_ze_comparison(final_df, comparison_plot_path)
-        
-        # 结果保存至 results 目录中
-        output_csv = os.path.join(script_dir, "results/thickness_decoupling/0325_ores_calculated_properties.csv")
-        os.makedirs(os.path.dirname(output_csv), exist_ok=True)
-        final_df.to_csv(output_csv, index=False, encoding="utf-8-sig")
-        print(f"\n[+] 数据分析结果已成功持久化至：{output_csv}")
-    except Exception as e:
-        print(f"\n[-] 管线运行遇到错误: {e}")
+            print(f"\n[+] {m} 计算成功！前 5 行数据预览：")
+            cols_to_show = ["Cu_grade", "Fe_grade", "Mean_thickness", "Ze_mean", "Theoretical_Zeff", "rho_e_mean"]
+            print(final_df[cols_to_show].head())
+            
+            # 绘制 Z_e vs Z_eff 对比图
+            comparison_plot_path = os.path.join(script_dir, f"results/thickness_decoupling/0325_ores_ze_vs_zeff_{m}.png")
+            plot_ze_comparison(final_df, comparison_plot_path, method=m)
+            
+            # 结果保存至 results 目录中
+            output_csv = os.path.join(script_dir, f"results/thickness_decoupling/0325_ores_calculated_properties_{m}.csv")
+            os.makedirs(os.path.dirname(output_csv), exist_ok=True)
+            final_df.to_csv(output_csv, index=False, encoding="utf-8-sig")
+            print(f"[+] {m} 数据分析结果已成功持久化至：{output_csv}")
+        except Exception as e:
+            print(f"\n[-] {m} 管线运行遇到错误: {e}")
 

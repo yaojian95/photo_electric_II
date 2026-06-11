@@ -1,0 +1,27 @@
+﻿Total pages: 5
+=== PAGE 1 ===
+'Reconstruction of diagnostic xray spectra by numerical analysis of transmission data\nPinHua Huang, TaoSeng Chen, and Kenneth R. Kase \n \nCitation: Medical Physics 13, 707 (1986); doi: 10.1118/1.595834 '
+---
+Blocks: 7
+Words: 135
+Reconstruction of diagnostic xray spectra by numerical analysis of transmission data PinHua Huang, TaoSeng Chen, and Kenneth R. Kase Citation: Medical Physics 13, 707 (1986); doi: 10.1118/1.595834 View online: http://dx.doi.org/10.1118/1.595834 View Table of Contents: http://scitation.aip.org/content/aapm/journal/medphys/13/5?ver=pdfcov Published by the American Association of Physicists in Medicine Articles you may be interested in Simulation of xray spectral reconstruction from transmission data by direct resolution of the numeric system AF=T Med. Phys. 20, 1695 (1993); 10.1118/1.596956 Laplace reconstruction of experimental diagnostic xray spectra Med. Phys. 15, 832 (1988); 10.1118/1.596198 Determination of diagnostic xray spectra with characteristic radiation using attenuation analysis Med. Phys. 15, 637
+=== PAGE 2 ===
+''
+---
+Blocks: 0
+Words: 0
+=== PAGE 3 ===
+''
+---
+Blocks: 0
+Words: 0
+=== PAGE 4 ===
+''
+---
+Blocks: 0
+Words: 0
+=== PAGE 5 ===
+''
+---
+Blocks: 0
+Words: 0

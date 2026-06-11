@@ -8,12 +8,24 @@ This workspace focus on validating XRT image quality and extracting standard sam
 
 ## Local Scripts
 
+### `density_with_grade/` (Density and Grade Analysis)
+- **Purpose**: 用于分析矿石密度与各元素品位之间的统计学关系，并自动识别潜在的异常样本（负样本）。
+- **Components**:
+    - `analyze_density_grade.py`: 读取 Excel 数据集，计算密度与元素（Cu, Fe, S）相关性，通过多元线性回归（Linear Regression）残差 Z-score 和孤立森林（Isolation Forest）进行异常样本提取与可视化。
+    - `generate_combined_figures.py`: 生成合并批次（0325 + 0520）的 00c 至 10c 各类图表以及 Cu/Fe 联合选别指标曲线。
+    - `generate_supplemental_figures.py`: 生成合并批次的补充与修正版图像，包括 01c（按原版列顺序对齐的相关性热力图）、09c（合并品位分布大图）和 10c（合并质量 vs 品位散点图）。
+- **Functions**:
+    - `analyze_density_and_grades(file_path: str, output_dir: str)`:
+        - **核心逻辑**: 执行数据清洗、相关性热力图计算、特征回归及离群点筛选；将识别结果与图表输出至指定目录。
+        - **参数 `file_path` (str)**: 输入数据的 Excel 文件路径（如 `工作簿1.xlsx`，需包含 `矿石编号`, `Cu`, `Fe`, `S`, `密度(g/ml)` 列）。
+        - **参数 `output_dir` (str)**: 结果图片与 CSV 异常样本表输出的目标文件夹（如 `analysis_results`）。
+
 ### `apd_acd_pipeline/` (Alvarez-Macovski & Spectrum Calibration Pipeline)
 - **Purpose**: 包含双能光电效应 (APD) 与康普顿散射 (ACD) 特征计算、能谱重建以及矿石物理特征反解的中央管道。
 - **Components**:
-    - `get_apd_acd.py`: 物理计算与 SIRZ 系统标定工具。支持 Static（静态）、Dyn（动态）与 M1（连续能谱积分）三种算法提取 apd/acd。
+    - `get_apd_acd.py`: 物理计算与 SIRZ 系统标定工具。支持 Static（静态）、Dyn（动态）、M1（连续能谱积分）与 ChenWen（陈文反演能谱积分）四种算法提取 apd/acd。
     - `reconstruct_spectrum.py`: X 射线管出射有效能谱重建求解器，基于已知厚度梯度的阶梯块在各电压下的透射率进行 NNLS 反演（默认能量 bin 宽度为 10.0 keV，平滑因子为 0.08，结合 Duane-Hunt 渐进物理截止约束抑制高能多重峰与 0 值）。
-    - `calculate_ores_properties.py`: 针对 114 块标样圆盘（`0325_input.pkl`），通过引入重建能谱与标定系统常数 $(K_1, g, \nu)$ 解算像素级 APD/ACD 特征，反算各矿石的代数有效原子序数 ($Z_e$) 和电子密度 ($\rho_e$)，并提供 `plot_ze_comparison` 绘制反算 $Z_e$ 与基于元素品位加权的理论有效原子序数 $Z_{eff}$ 的散点对比图。
+    - `calculate_ores_properties.py`: 针对 114 块标样圆盘（`0325_input.pkl`），通过引入重建能谱（支持 M1 能谱或陈文反演能谱）与标定系统常数 $(K_1, g, \nu)$ 解算像素级 APD/ACD 特征，反算各矿石的代数有效原子序数 ($Z_e$) 和电子密度 ($\rho_e$)，支持 M1 与 ChenWen 等方法计算，并提供 `plot_ze_comparison` 绘制反算 $Z_e$ 与基于元素品位加权的理论有效原子序数 $Z_{eff}$ 的散点对比图。
 
 ### `contour_app/` (Desktop Application)
 - **Purpose**: A standalone GUI tool for interactive contour extraction and parameter tuning.
@@ -614,3 +626,11 @@ This workspace focus on validating XRT image quality and extracting standard sam
 ## IDE Configuration
 - **MCP Config**: `C:\Users\yaoji\.gemini\antigravity-ide\mcp_config.json` 注册并运行了官方 `@modelcontextprotocol/server-pdf` MCP 服务器（使用 `npx` 自动执行），赋予 AI 助手原生、高性能阅读本地和远程 PDF 文档、解析文本 and 交互式文档处理的能力。
 - **Unsandboxed Environment**: 针对默认沙箱环境（UWP AppContainer）无法访问 `D:\` 盘 Anaconda 环境且极易触发 App Execution Alias 导致命令挂起或卡死的问题，成功申请并启用了 `unsandboxed` 的 `cmd.exe` 和 `python` 提权。这使得 AI 助手在执行终端命令时能够脱离沙箱限制，直接使用原生环境执行 `D:\anaconda\python.exe` 及其相关科学计算库，实现 100% 的原生系统速度与瞬时响应。
+
+### detector_raw_intensity/evaluate_inverse_square.py
+- **Purpose**: 用于分析给定不同电压下 (120kV, 140kV, 160kV) 双能探测器的原始灰度值 (CSV 格式)，以评估其辐射强度分布是否符合与距离的平方反比定律 (或 ^3 \theta$ 分布)。同时根据放置了物体的参考数据 (160kV_4mA_rawdata_with_sticks.csv)，确定皮带的左右物理边缘对应的探测器像素位置。
+- **Workflow**:
+    1. 读取参考数据，寻找信号强度的显著下降点，精确定位左右皮带边缘位置 (左: 111, 右: 1419)。
+    2. 根据理论推导 (边缘与焦点成 45° 角) 构建理论上的平方反比 (/r^2$) 或 ^3 \theta$ 归一化辐射分布曲线。
+    3. 提取中心区域像素的中位数对数据进行归一化。
+    4. 将实测数据的归一化灰度分布与理论曲线叠加绘制，并计算有效区间内的 ^2$ 拟合优度，最终输出带有拟合指标的高低能独立对比图像。

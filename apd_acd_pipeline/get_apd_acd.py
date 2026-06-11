@@ -943,14 +943,23 @@ def _load_step_pixels(filepath: str, thickness_arr: np.ndarray, I0: float) -> li
 def run_step_apd_acd_analysis(include_0331=True, plot_details=True, output_dir='results/thickness_decoupling/apd_acd_analysis'):
     """
     核心分析调度主函数。
-    读取能谱反推 JSON，遍历所有电压与滤片配置，针对 Static (58/105 keV)、Dyn (动态等效单能) 和 M1 (连续能谱积分) 三种方法，
+    读取能谱反推 JSON，以及陈文反演能谱 CSV，针对 Static (58/105 keV)、Dyn (动态等效单能)、M1 (连续能谱积分) 以及 ChenWen (陈文反演能谱积分) 四种方法，
     并行计算其像素级与阶梯级 APD/ACD 特征、执行 SIRZ 校准、重构有效原子序数 Ze 和电子密度 rho_e，
-    生成多方法线性对比图、M1 深度分析大图及 combined summaries 汇总依赖大图。
+    生成多方法线性对比图、各算法深度分析大图及 combined summaries 汇总依赖大图。
     
     参数：
-    - include_0331 (bool): 是否在 0.6mm 分析中并入历史 0331 数据集。
-    - plot_details (bool): 是否绘制详细物理特征及轨迹图。
-    - output_dir (str): 图表及 JSON 保存物理目录。
+    - include_0331 (bool):
+      类型：bool
+      含义：是否在 0.6mm 分析中并入历史 0331 数据集。
+      用法：传入 True 或 False。
+    - plot_details (bool):
+      类型：bool
+      含义：是否绘制详细物理特征、轨迹图、拟合图及直方图。
+      用法：传入 True 或 False。
+    - output_dir (str):
+      类型：str
+      含义：图表及 JSON 保存的物理相对/绝对目录路径。
+      用法：例如 'results/thickness_decoupling/apd_acd_analysis'。
     """
     import os
     import re
@@ -958,7 +967,7 @@ def run_step_apd_acd_analysis(include_0331=True, plot_details=True, output_dir='
     import matplotlib.pyplot as plt
     import gc
     
-    script_dir = os.path.dirname(os.path.abspath(__file__))
+    script_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     input_dir_0429 = os.path.join(script_dir, 'results/20260429_mask_generated_16bit')
     input_dir_0331 = os.path.join(script_dir, 'results/20260331_16bit')
     abs_output_dir = os.path.join(script_dir, output_dir)
@@ -1009,7 +1018,7 @@ def run_step_apd_acd_analysis(include_0331=True, plot_details=True, output_dir='
                     'Fe_step': {'a_p_mean': [], 'a_c_mean': [], 'Ze_mean': [], 'rho_e_mean': []},
                     'Cu_step': {'a_p_mean': [], 'a_c_mean': [], 'Ze_mean': [], 'rho_e_mean': []}
                 } for step_num in [1, 3, 5]
-            } for method in ['Static', 'Dyn', 'M1']
+            } for method in ['Static', 'Dyn', 'M1', 'ChenWen']
         } for f_type in filter_types
     }
     
@@ -1049,10 +1058,32 @@ def run_step_apd_acd_analysis(include_0331=True, plot_details=True, output_dir='
             global_results[f_type][voltage] = {}
             voltage_data_methods = {}
             
-            for method in ['Static', 'Dyn', 'M1']:
+            for method in ['Static', 'Dyn', 'M1', 'ChenWen']:
                 # 只有成功加载能谱参数后才能运行 Dyn 和 M1
                 if method in ['Dyn', 'M1'] and spectrum_info is None:
                     continue
+                
+                cw_S_L = None
+                cw_S_H = None
+                cw_energies = None
+                if method == 'ChenWen':
+                    chenwen_csv_path = os.path.join(script_dir, 'chenwen/invsp_results', voltage, 'reconstructed_spectra.csv')
+                    if not os.path.exists(chenwen_csv_path):
+                        continue
+                    import pandas as pd
+                    try:
+                        cw_df = pd.read_csv(chenwen_csv_path)
+                        cw_energies = cw_df['energy_keV'].values
+                        cw_S_L = cw_df['low'].values
+                        if f_type == '0.6mm':
+                            cw_S_H = cw_df['high_0.6mm'].values
+                        else:
+                            cw_S_H = cw_df['high_1.2mm'].values
+                        cw_S_L = cw_S_L / max(np.sum(cw_S_L), 1e-12)
+                        cw_S_H = cw_S_H / max(np.sum(cw_S_H), 1e-12)
+                    except Exception as e:
+                        print(f"[-] Error loading ChenWen spectrum at {voltage}: {e}")
+                        continue
                     
                 voltage_data = {}
                 for name in step_mats.values():
@@ -1081,6 +1112,8 @@ def run_step_apd_acd_analysis(include_0331=True, plot_details=True, output_dir='
                             S_H = np.array(spectrum_info['S_H'])
                             energies = np.array(spectrum_info['energies_keV'])
                             apd_arr, acd_arr = solve_apd_acd_nonlinear(T_L, T_H, S_L, S_H, energies)
+                        elif method == 'ChenWen':
+                            apd_arr, acd_arr = solve_apd_acd_nonlinear(T_L, T_H, cw_S_L, cw_S_H, cw_energies)
                             
                         # 剔除无效计算的非有限数据
                         valid_idx = np.isfinite(apd_arr) & np.isfinite(acd_arr)
@@ -1124,8 +1157,8 @@ def run_step_apd_acd_analysis(include_0331=True, plot_details=True, output_dir='
                     K1_s, g_s, nu_s = calibrate_sirz_coefficients(voltage_data, step_index=s_idx)
                     if K1_s is not None:
                         calib_results[s_idx] = (K1_s, g_s, nu_s)
-                        if method == 'M1' and s_idx == 0:
-                            print(f"  [+] M1 Spectrum Calibration ({f_type}, {voltage}): K1 = {K1_s:.4f}, g = {g_s:.4f}, nu = {nu_s:.4f}")
+                        if method in ['M1', 'ChenWen'] and s_idx == 0:
+                            print(f"  [+] {method} Spectrum Calibration ({f_type}, {voltage}): K1 = {K1_s:.4f}, g = {g_s:.4f}, nu = {nu_s:.4f}")
                             
                 # 应用第一阶梯标定值计算 Ze 和 rho_e
                 K1, g, nu = calib_results.get(0, (None, None, None))
@@ -1237,8 +1270,8 @@ def run_step_apd_acd_analysis(include_0331=True, plot_details=True, output_dir='
                 ax_ap = axes_comp[0, col]
                 ax_ac = axes_comp[1, col]
                 
-                styles = {'Static': 'ro-', 'Dyn': 'gs-', 'M1': 'b^-'}
-                for m in ['Static', 'Dyn', 'M1']:
+                styles = {'Static': 'ro-', 'Dyn': 'gs-', 'M1': 'b^-', 'ChenWen': 'm*-'}
+                for m in ['Static', 'Dyn', 'M1', 'ChenWen']:
                     if m in global_results[f_type][voltage] and 'materials' in global_results[f_type][voltage][m] and name in global_results[f_type][voltage][m]['materials']:
                         stats = global_results[f_type][voltage][m]['materials'][name]
                         d_mm = np.array([s['thickness_mm'] for s in stats])
@@ -1292,7 +1325,7 @@ def run_step_apd_acd_analysis(include_0331=True, plot_details=True, output_dir='
 
 
     # 绘制合并滤片 (0.6mm + 1.2mm) 的 combined summaries 曲线
-    for method in ['Static', 'Dyn', 'M1']:
+    for method in ['Static', 'Dyn', 'M1', 'ChenWen']:
         for step_num in [1, 3, 5]:
             summary_06 = coeff_summaries['0.6mm'][method][step_num]
             summary_12 = coeff_summaries['1.2mm'][method][step_num]

@@ -1,0 +1,1421 @@
+﻿Total pages: 13
+=== PAGE 1 ===
+ORIGINAL RESEARCH
+published: 21 May 2021
+doi: 10.3389/fphy.2021.678171
+Frontiers in Physics | www.frontiersin.org
+1
+May 2021 | Volume 9 | Article 678171
+Edited by:
+Liang Li,
+Tsinghua University, China
+Reviewed by:
+Hewei Gao,
+Tsinghua University, China
+Thomas Weber,
+Siemens Healthcare GmbH, Germany
+*Correspondence:
+Ge Wang
+wangg6@rpi.edu
+Specialty section:
+This article was submitted to
+Medical Physics and Imaging,
+a section of the journal
+Frontiers in Physics
+Received: 09 March 2021
+Accepted: 15 April 2021
+Published: 21 May 2021
+Citation:
+Li M, Fan F-L, Cong W and Wang G
+(2021) EM Estimation of the X-Ray
+Spectrum With a Genetically
+Optimized Step-Wedge Phantom.
+Front. Phys. 9:678171.
+doi: 10.3389/fphy.2021.678171
+EM Estimation of the X-Ray
+Spectrum With a Genetically
+Optimized Step-Wedge Phantom
+Mengzhou Li, Feng-Lei Fan, Wenxiang Cong and Ge Wang*
+Department of Biomedical Engineering, Rensselaer Polytechnic Institute, Troy, NY, United States
+The energy spectrum of an X-ray tube plays an important role in computed tomography
+(CT), and is often estimated from physical measurement of dedicated phantoms. Usually,
+this estimation problem is reduced to solving a system of linear equations, which
+is generally ill-conditioned. In this paper, we optimize a phantom design to 铿乶d the
+most effective combinations of thicknesses for different materials. First, we analyze the
+ill-posedness of the energy spectrum inversion when the number of unknown variables
+(N) and measurements (M) are equal, and show the condition number of the system
+matrix increases exponentially with N if the transmission thicknesses are linearly changed.
+Then, we present a genetic optimization algorithm to minimize the condition number of
+the system matrix in a general case (M < N) with respect to the selection of thicknesses
+and types of phantom materials. Finally, in the simulation with Poisson noise we study
+the accuracy of the spectrum estimation using the expectation-maximum algorithm.
+Our results indicate that the proposed method allows high-quality spectrum estimation,
+and the number of measurements is reduced over two thirds of that required by the
+widely-used method using a phantom with linearly-changed thicknesses.
+Keywords:
+spectrum
+estimation,
+genetic
+algorithm,
+X-ray
+spectrum,
+transmission
+measurement,
+polychromatic reprojection
+1. INTRODUCTION
+Knowledge of the X-ray spectrum plays an important role in all X-ray imaging tasks; e.g., dose
+calculation [1, 2], dual-energy material decomposition [3], artifacts correction [4], and X-ray
+detector performance evaluation/calibration [5]. In some cases of a low X-ray 铿倁x, the spectrum
+can be directly measured with an X-ray spectrometer which utilizes energy-resolved detectors.
+However, besides the cost of the instrument, direct measurement of the energy spectrum of an
+X-ray source of a high 铿倁x can be complicated and di铿僣ult. It is well-known that in clinical
+applications the X-ray source is operated at a relatively high tube current to reduce the scan time.
+Hence, indirect estimation methods are more practical due to its simplicity. Currently, there are
+mainly two types of methods for this purpose: estimation via realistic modeling of the source [6],
+and spectral reconstruction from transmission measurements of calibration phantoms [7].
+The modeling method can generate a precise spectrum given all speci铿乧ations (such as target
+material, emission angle, and 铿乴tration) of the X-ray tube based on a comprehensive physical
+model of the tube, but in reality this is technically challenging, and we are usually unable to
+obtain all of the speci铿乧ations and other details due to the fact that the tube design is often
+proprietary. Thus, estimation through transmission measurements is more frequently performed.
+
+
+=== PAGE 2 ===
+Li et al.
+X-Ray Spectrum Estimation With Phantoms
+A set of calibration materials with known attenuation properties
+and thicknesses can be utilized to generate projection data. Then,
+a group of linear equations of spectral parameters are given
+based on a discrete polychromatic forward model. The spectrum
+is 铿乶ally reconstructed through iterative optimization with
+regularization [8鈥?0]. This inverse problem is ill-conditioned and
+even under-determined due to the high dimensionality of the
+continuous spectrum, making the solution intrinsically unstable.
+To stabilize the spectral estimation, di铿€erent techniques were
+proposed, including a limited-variable representation [11, 12]
+and mode-combination [13].
+In this paper, we focus on reducing the ill-posedness of
+the problem by improving data quality [14, 15] for estimation
+robustness, which is complementary with the model-based
+methods [8, 10, 13, 16]. In practice, aluminum (Al) and
+polymethyl methacrylate (PMMA) are the most common
+materials used for spectrum estimation. Step-wedge phantoms
+or slabs made of those materials are often used to form
+representative attenuating paths. The measurement process
+usually involves tens of combinations and takes a long time.
+However, more combinations do not necessarily reduce the
+ill-posedness of the problem due to insigni铿乧ant changes in
+projection data since small thickness variation of light materials
+leads to similar attenuation curves. Thus, the investigation for
+the most e铿€ective combinations of di铿€erent materials and their
+thicknesses would alleviate the ill-posedness and be bene铿乧ial
+for increased spectrum estimation accuracy with a decreased
+number of measurements. Here we therefore search for an
+optimal combination of material types and thicknesses in the
+set of Al, PMMA, copper (Cu), and iron (Fe). Speci铿乧ally, we
+use the Genetic Algorithm (GA) to minimize the condition
+number of the system matrix and o铿€er guidelines for e铿€ective
+spectral estimation of an X-ray tube. In a simulation study
+with Poisson noise, we compare the quality metrics of spectrum
+estimations using our method with the optimized phantom and
+the conventional method with a linear slab phantom.
+2. METHODS
+2.1. Measurement Model
+Given an X-ray source spectrum distribution S(E) and a
+detector spectral response D(E), the transmission signal can be
+formulated as
+Ii =
+Z
+E
+D(E)S(E) exp
+
+鈭抣i碌i(E)
+
+dE,
+(1)
+where Ii represents the intensity of the i-th measurement, and
+li and 碌i(E) are the corresponding total path length and linear
+attenuation coe铿僣ient of the involved material, respectively.
+After 铿俛t-铿乪ld correction and combination of S(E) and D(E) for
+a normalized spectrum
+W(E) =
+S(E)D(E)
+R
+E S(E)D(E)dE,
+(2)
+we can express Equation (1) as
+pi =
+Z
+E
+W(E) exp
+
+鈭抣i碌i(E)
+
+dE.
+(3)
+With M measurements, a set of linear equations can be obtained
+from Equation (3) after evenly discretizing the spectrum into
+N bins,
+pi =
+N
+X
+j=1
+e鈭抣i碌ijwj,
+i 鈭坽1, . . . , M}, j 鈭坽1, . . . , N}
+(4)
+where 碌ij denotes 碌i(Ej), which is the attenuation coe铿僣ient
+within the energy bin. In the matrix form, Equation (4) becomes
+p = Aw
+(5)
+where A 鈭圧M脳N with each element aij = e鈭抣i碌ij being positive,
+p =
+
+p1, p2, . . . , pM
+T, and w = [w1, w2, . . . , wN]T.
+2.2. Condition Number With Large N
+In conventional practice, the measurements are conducted with
+a set of attenuation slabs with linearly-changed thicknesses.
+However, this linear arrangement is not optimal and could lead to
+the explosion of the condition number of the system matrix A as
+the number of unknowns becomes large, while a large condition
+number means an instability of the solution to the system of
+linear equations.
+Let us look at the simplest case of M = N with a single material
+type. Suppose that the thickness of the slab for i-th measurement
+is li = l0 + (i 鈭?)1l, where l0 is the initial thickness and 1l is a
+铿亁ed increment. The system matrix in Equation (5) becomes
+A =
+铮?
+铮０
+e鈭捖?l1 . . . e鈭捖礿l1 . . . e鈭捖礜l1
+...
+e鈭捖礿li
+...
+e鈭捖?lM . . . e鈭捖礿lM . . . e鈭捖礜lM
+铮?
+铮猴；= VD
+(6)
+where 碌j stands for the linear attenuation coe铿僣ient of the
+material within the j-th energy bin; V and D are respectively an
+M-by-N Vandermonde matrix and a N-by-N diagonal matrix,
+and de铿乶ed as follows:
+V =
+铮?
+铮／铮０
+1
+. . .
+1
+. . .
+1
+x1
+. . .
+xj
+. . .
+xN
+...
+xji
+...
+xM鈭?
+1
+. . . xM鈭?
+j
+. . . xM鈭?
+N
+铮?
+铮猴：铮猴；
+D =
+铮?
+铮／铮０
+e鈭捖?l0
+0
+. . .
+0
+0
+e鈭捖?l0 . . .
+0
+...
+...
+...
+0
+0
+. . . e鈭捖礜l0
+铮?
+铮猴：铮猴；
+where xj = e鈭捖礿1l. When M = N, A is invertible since det(A) 谈=
+0. By de铿乶ition, the condition number of A is
+cond(A) = cond(VD) = 鈭D鈭ヂ?鈭鈭?V鈭?鈭?
+(7)
+Frontiers in Physics | www.frontiersin.org
+2
+May 2021 | Volume 9 | Article 678171
+
+
+=== PAGE 3 ===
+Li et al.
+X-Ray Spectrum Estimation With Phantoms
+Without loss of generality, let us look at the conditioning with
+the in铿乶ity norm. Since the 鈭?norm of a matrix is equal to the
+largest 1-norm of rows, suppose that the k-th row of V has the
+largest 1-norm while the k鈥?th row of V鈭? has the largest 1-norm,
+which are expressed as
+鈭鈭モ垶=
+n
+X
+j=1
+vk,j
+,
+鈭鈭?鈭モ垶=
+n
+X
+j=1
+v鈥瞜鈥?j
+,
+(8)
+where vi,j and v鈥?
+i,j are elements of V and V鈭?, respectively. Then,
+we have
+鈭D鈭モ垶鈮?
+n
+X
+j=1
+djvk,j
+ 鈮?
+n
+X
+j=1
+dmin
+vk,j
+ = dmin 鈭鈭モ垶,
+(9)
+and
+鈭鈭?V鈭?鈭モ垶鈮?
+n
+X
+j=1
+
+v鈥瞜鈥?j
+dk鈥?
+ 鈮?
+1
+dmax
+
+
+V鈭?
+
+
+鈭?
+(10)
+where di, i 鈭坽1, 2, 路 路 路 , N} are the diagonal elements of D, and
+dmin = mini=1,...,n
+di
+, dmax = maxi=1,...,n
+di
+.
+By substituting Equations (9) and (10) into Equation (7),
+we obtain
+cond鈭?A) 鈮min
+dmax
+鈭鈭モ垶鈭鈭?鈭モ垶= dmin
+dmax
+cond鈭?V).
+(11)
+Since the spectrum is 铿亁ed and l0 is a preset constant, the fraction
+dmin/dmax remains almost constant as N increases (1l decreases).
+Hence, the conditioning of A mainly relies on the conditioning
+of V. However, the Vandermonde matrix is badly conditioned
+as proven in Gautschi and Inglese [17], and the growth rate
+of cond鈭?V) with N is exponential, and at least O(2N), when
+with positive node vectors (i.e., xi > 0 for i 鈭坽1, . . . , N}).
+Thus, the condition number of A gets exponentially increased
+with N. As a result, we cannot expect to in铿乶itely increase the
+spectrum estimation resolution by increasing the number of
+measurements under the con铿乬uration of single material with
+linearly-changed thicknesses.
+2.3. Thicknesses Optimization via Genetic
+Evolution
+As shown in Equation (6), the arrangement for linear change
+in thickness leads to a Vandermonde-like system matrix, which
+is highly ill-conditioned. Hence, we are motivated to introduce
+non-linearity, change the matrix form and improve the condition
+number of the system matrix. Given the complexity of this
+optimization problem, we use the Genetic Algorithm (GA) [18]
+to search for an optimal phantom design with respective to
+material types and thicknesses so that the condition number of
+the system matrix is minimized. To be practical, we consider a
+general case of M 谈= N. In this case, the condition number is
+calculated in the least square sense with the 2-norm:
+cond2(A) = 鈭鈭?鈭+鈭? = 蟽max
+蟽min
+,
+(12)
+where A+ is the pseudoinverse of A, and 蟽max and 蟽min are
+the maximum and minimum non-zero singular values of A,
+respectively. Generally, a genetic algorithm consists of these
+key steps: chromosome representation, crossover operation,
+mutation operation, 铿乼ness calculation, and selection. Our
+adapted genetic algorithm is described in the following.
+2.3.1. Chromosome Representation
+In this application, we code M thicknesses for measurement as
+a vector l =
+
+l1, l2, . . . , lM
+
+which represents a chromosome.
+Each element or gene of a chromosome is bounded within [l0, L]
+(unit: cm). To ease analysis, the thickness is discretized at a high
+resolution dl 鈮狶. The chromosomes can be initialized with an
+uniform random number generator within (l0, L), followed by
+discretization and sorting in an ascending order.
+2.3.2. Crossover Operation
+This operation is used to increase the variability of the
+chromosomes.
+In
+this
+operation,
+two
+randomly
+selected
+chromosomes from the parent generation are paired to generate
+two children by mixing the genes from the parents. The
+generation process includes three steps: 铿乺st, the positions of the
+genes to be mixed are randomly selected (each gene position has
+a 50% chance to be selected); then, the mixing ratio rm 鈭?0, 1)
+for each selected position is uniformly and randomly generated
+to mix the parent genes in the position, and two types of new
+genes are generated following (1 鈭抮m)l{a}
+i
++ rml{b}
+i
+(type-1) and
+rml{a}
+i
++ (1 鈭抮m)l{b}
+i
+(type-2) where l{a}
+i
+and l{b}
+i
+are two parent
+genes; 铿乶ally, two children chromosomes are generated by
+replacing the genes of parent chromosomes l{a} and l{b} for each
+and every selected positions with the type-1 and type-2 children
+genes, respectively. The crossover operation is repeated multiple
+times according to the product of a pre-de铿乶ed crossover
+probability and the population size. The generated children
+chromosomes are added into the population after all crossover
+operations are 铿乶ished.
+2.3.3. Mutation Operation
+This operation follows the crossover stage, and increases the
+gene types of the population via random modi铿乧ation. Each
+chromosome has a same prede铿乶ed probability to be mutated.
+The mutation process consists of following steps: 铿乺st, one
+mutation position i is randomly selected for the chromosome;
+then, the gene on the position li is increased or decreased with
+equal possibility by a random amount, and speci铿乧ally, the
+change is computed as follows:
+li =
+(
+li 鈭?li 鈭抣0)rs(1 鈭捨?)2,
+for decrements;
+li + (L 鈭抣i)rs(1 鈭捨?)2,
+for increments,
+(13)
+where rs is a uniformly distributed random scaling factor drawn
+from (0, 1) for each mutation; and 纬 is the generation ratio
+de铿乶ed by the current number of generations over the maximum
+number of generations, which helps regulate the converging
+behavior of the solution.
+Frontiers in Physics | www.frontiersin.org
+3
+May 2021 | Volume 9 | Article 678171
+
+
+=== PAGE 4 ===
+Li et al.
+X-Ray Spectrum Estimation With Phantoms
+2.3.4. Fitness Calculation
+The 铿乼ness is de铿乶ed by a merit function to determine the
+quality of each chromosome. Naturally, we use the condition
+number of the system matrix as the ruler (de铿乶ed in Equation
+6, calculated with l), and calculate the 铿乼ness as the negative
+logarithm of the condition number. The results of the population
+are then normalized to have a prede铿乶ed mean and unit variance.
+The prede铿乶ed target mean is a hyper-parameter. After the
+normalization, the negative tail will be truncated to zero.
+2.3.5. Selection Operation
+After the population augmentation via crossover and mutation,
+the selection operation mimics the natural selection for evolution
+to control the population size to the prede铿乶ed level Npop based
+on the 铿乼ness of the chromosomes. The survival chromosomes
+are randomly selected by repetitively spinning a weighted roulette
+wheel Npop times. The weight/chance of a chromosome being
+selected is de铿乶ed as the 铿乼ness of the chromosome over the
+sum of all 铿乼ness of the population. Note that the 铿乼ness of the
+best chromosome is enlarged by several folds (a preset hyper-
+parameter) before the selection, to adopt the elitism strategy.
+The thicknesses coded in chromosomes are also sorted in an
+ascending order after each selection operation to 铿亁 the disorder
+caused during crossover and mutation.
+After the chromosome initialization, the genetic operations
+(crossover, mutation, 铿乼ness calculation, and selection) are
+iterated to reach the maximum number of generations. Then, the
+best quality solution can be found in the youngest generation.
+Again, the hyperparameters include the maximum number of
+generations, the population size, the crossover probability, the
+mutation probability, the population mean of 铿乼ness to be
+normalized to, and the boosting factor for best chromosomes.
+2.4. Spectrum Reconstruction via
+Expectation-Maximization
+The expectation-maximization (EM) algorithm is widely used
+for the spectrum estimation to overcome the illness of the
+problem. It is well-known that the EM method converges to
+the solution that minimizes the Kullbeck-Liebler distance in the
+measurement domain. For the problem described in Equation
+(5), the multiplicative update equation is as follows:
+w(k+1)
+j
+=
+w(k)
+j
+P
+M aij
+X
+M
+aijpi
+P
+N aij鈥瞱(k)
+j鈥?
+(14)
+The EM method inherently guarantees a positive spectrum
+if the initial guess is positive. However, it cannot recover
+铿乶e details of the spectrum without proper initialization, e.g.,
+missing/distorting characteristic lines, as suggested in Sidky
+et al. [14]. Hence, we incorporate the positional information
+of characteristic lines into the initialization for improved
+performance of the EM estimation. More speci铿乧ally, all elements
+of an initial vector are set to 1 except for a few di铿€erent positive
+values at the positions of tungsten characteristic peaks.
+20
+40
+60
+80
+100
+120
+100
+102
+104
+Al
+PMMA
+Cu
+Fe
+FIGURE 1 | Spectral linear attenuation coef铿乧ients of Al, PMMA, Cu, and Fe,
+respectively.
+3. EXPERIMENTS
+3.1. Thickness Optimization
+In this study we limit our scope to measurements with a
+single material type, as in practice it is common to perform
+measurements on one step wedge made of the same material.
+Although a phantom made of multiple materials may improve
+the condition number of the system matrix, it will be complicated
+and expensive. To optimize the combination of thicknesses for
+spectrum estimation, we evaluated each type of the commonly
+available materials including PMMA, Al, Fe, and Cu. The
+thickness range was set to [0.02, 10], in the unit of cm, which
+is practically feasible. The thickness range was discretized at
+the step of 0.001 cm. The spectral linear attenuation values of
+the materials were obtained from the database established by
+National Institute of Standards and Technology (NIST) [19], and
+are plotted in Figure 1. The values at energy points between
+the NIST data points were interpolated via log-log cubic-spline
+铿乼ting, in the same way NIST used for interpolation from
+measured and calculated data points [20]. Without loss of
+generality, we considered the spectral range (10, 120 keV) for
+typical medical CT, with a relatively coarse resolution of 5 keV
+(i.e., N = 22), and used the mean attenuation value within
+the energy window of each bin for further calculation. The
+hyperparameters were empirically set as follows: the maximum
+number of generations as 500, the population size of 1,000, the
+crossover probability of 0.65, the mutation probability of 0.1, the
+target distribution mean of 10, and the best 铿乼ness boosting factor
+of 13. In this scenario, an exemplary cost-generation curve during
+the search for the optimal solution is shown in Figure 2, with
+the thickness range of [0, 5] and Al as the phantom material.
+The smooth convergence of the population average cost and
+the lowest cost solution from the population demonstrates the
+appropriateness of the hyperparameter settings.
+3.1.1. Stability of the Optimization Performance
+We 铿乺st tested the stability of GA with 200 repetitions of the
+searching procedure for an optimal set of thicknesses within
+the range of [0, 5] with nine measurements. One additional
+Frontiers in Physics | www.frontiersin.org
+4
+May 2021 | Volume 9 | Article 678171
+
+
+=== PAGE 5 ===
+Li et al.
+X-Ray Spectrum Estimation With Phantoms
+open beam (zero thickness) measurement was also included,
+making the total number of measurements M = 10. The test
+was conducted with each of the four material types. The results
+from 200 randomly initialized runs show a great agreement
+among the solutions. The statistics of the searched thicknesses
+and the corresponding condition numbers are summarized in
+Table 1. The standard deviation to mean ratios of the condition
+numbers are quite small for all four tests, suggesting a high
+stability/repeatability of GA in this application. As a result, the
+200 solutions are extremely close to each other, which implies
+that we are close to the optimal, since GA often has a good global
+searching ability.
+3.1.2. Optimization With Aluminum
+To investigate the optimal arrangement of thicknesses with a
+single material type, we 铿乺st assumed the use of Al which is
+most popular in step edge phantoms for spectrum estimation.
+Initially, seven measurements were performed, and thicknesses
+were searched within [0.02, 10]. The corresponding best
+linear arrangement was also searched for, as the baseline. For
+comparison, the 铿乺st thickness was 铿亁ed at 0.02 cm for both
+linear and non-linear arrangements. In other words, there were
+6 thicknesses to be optimized for non-linear arrangement while
+there was only one variable (i.e., the maximum thickness) to be
+determined for the linear arrangement. The optimization was
+100
+200
+300
+400
+500
+105
+106
+The Best Individual
+Population Average
+FIGURE 2 | Convergence of the GA optimization in terms of condition number.
+repeated 30 times for the non-linear arrangement and 5 times for
+the linear arrangement, and the smaller number of repetitions
+for the linear arrangement is due to its high stability. The best
+solutions among the repetitions are presented in Figure 3B. The
+standard deviations are close to zero with respect to both the
+thicknesses and the condition numbers for the optimal non-
+linear arrangement, suggesting the optimality of the solution.
+Compared with the best linear arrangement, the condition
+number is reduced by almost two orders of magnitude with the
+non-linear scheme.
+One interesting phenomenon in Figure 3B is that both
+the maximum thicknesses of the best linear and non-linear
+arrangements do not reach the boundary 10 cm. This suggests
+that, for a certain number of measurements, blindly increasing
+the maximum thickness does not necessarily improve the
+e铿€ectiveness of the measurements. This may appear counter-
+intuitive since a larger thickness makes transmitted X-ray beam
+harder and hence helps the extraction of spectral information
+from the measurement, but it is actually reasonable because
+increasing the thickness also reduces the signal strength, not
+only saturating the information content but also elevating
+the instability.
+3.1.3. In铿倁ence of M
+The in铿倁ence of the number of measurements M was also
+studied. The total number of measurements was set to 5, 10, and
+15, respectively, with the other factors intact. The corresponding
+results in Figure 3 shows that the condition number rapidly
+grows as the number of measurements increases. It is also noticed
+that the shape of the curve in Figure 3D di铿€ers from others with
+the condition number and its standard deviation being very large,
+but the standard deviations of the thicknesses remain small. This
+suggests the numerical unstableness due to the bad conditioning
+of the system matrix. This observation implies that for single
+material based measurement with a 铿亁ed maximum thickness,
+a few number of measurements should be enough and a larger
+M would cause a higher instability. Another observation is that
+the maximum thickness was also changed with the number of
+measurements in a positively correlated manner.
+3.1.4. Impact of Material Types
+The impact of material types on optimization results is
+illustrated in Figures 4鈥?, corresponding to PMMA, Cu, and
+TABLE 1 | Summary of the GA searching results with 200 repetitions when N = 22, l 鈭圼0, 5]9.
+Material
+Solution vector of 9 thicknesses (unit: cm)
+Condition #
+Std./Mean
+Al
+Mean
+0.022
+0.090
+0.228
+0.475
+0.892
+1.562
+2.588
+4.051
+4.998
+77778
+鈥?
+Std.
+0.0004
+0.0005
+0.0005
+0.0005
+0.0006
+0.0011
+0.0012
+0.0013
+0.0014
+65.439
+0.00084136
+PMMA
+Mean
+0.105
+0.445
+0.989
+1.711
+2.556
+3.440
+4.240
+4.811
+4.999
+9.4723e+12
+鈥?
+Std.
+0.0003
+0.0005
+0.0006
+0.0007
+0.0014
+0.0014
+0.0014
+0.0013
+0.0006
+9.5565e+09
+0.0010089
+Cu
+Mean
+0.002
+0.004
+0.009
+0.021
+0.045
+0.096
+0.201
+0.420
+0.991
+1994.4
+鈥?
+Std.
+0.0007
+0.0011
+0.0012
+0.0017
+0.0025
+0.0039
+0.0062
+0.0092
+0.0189
+136.84
+0.068613
+Fe
+Mean
+0.001
+0.005
+0.013
+0.030
+0.064
+0.135
+0.282
+0.584
+1.367
+2159.8
+鈥?
+Std.
+0.0007
+0.0004
+0.0005
+0.0008
+0.0015
+0.0015
+0.0030
+0.0048
+0.0104
+31.345
+0.014513
+Frontiers in Physics | www.frontiersin.org
+5
+May 2021 | Volume 9 | Article 678171
+
+
+=== PAGE 6 ===
+Li et al.
+X-Ray Spectrum Estimation With Phantoms
+FIGURE 3 | Optimal thicknesses for the non-linear arrangement against the best linear arrangement for (A) M = 5 (B) M = 7 (C) M = 10 and (D) M = 15
+measurements with Al within the range [0.02, 10] cm. The error-bars in the curve stand for the standard deviation of the thicknesses while the numbers in the legend
+are the means and standard deviations of the condition numbers from 30 runs.
+FIGURE 4 | Optimal thickness arrangement against the best linear arrangement for (A) M = 5 (B) M = 7 (C) M = 10 and (D) M = 15 measurements with PMMA
+within [0.02, 10] cm. The error-bars in the curve stand for the standard deviations of the thickness while the number in parentheses in the legend is the standard
+deviation of the condition number for 30 repetitions.
+Fe, respectively. The 铿乬ures for Cu and Fe support our
+conclusions for Al, (1) the condition number improves in
+orders of magnitude with the non-linear arrangement; (2) the
+condition number exponentially expands as the number of
+measurements increases; (3) the maximum thickness increases
+as the number of measurements increases for both linear and
+non-linear arrangements. The 铿乬ure for PMMA does not seem
+to follow the trends. The condition number expands much
+faster compared to the cases of the other materials, and the
+improvement with the non-linear arrangement is still observed
+but not huge, which can be explained by the maximum thickness
+being capped by the boundary. Figure 4D even demonstrates
+unstable optimization results and decreased maximum thickness
+due to the huge condition number under the capped maximum
+Frontiers in Physics | www.frontiersin.org
+6
+May 2021 | Volume 9 | Article 678171
+
+
+=== PAGE 7 ===
+Li et al.
+X-Ray Spectrum Estimation With Phantoms
+FIGURE 5 | Optimal thickness arrangement against the best linear arrangement for (A) M = 5 (B) M = 7 (C) M = 10 and (D) M = 15 measurements with Cu within
+[0.02, 10] cm. The error-bars in the curve stand for the standard deviation of the thickness while the number in parentheses in the legend is the standard deviation of
+the condition number for 30 repetitions.
+FIGURE 6 | Optimal thickness arrangement against the best linear arrangement for (A) M = 5 (B) M = 7 (C) M = 10 and (D) M = 15 measurements with Fe within
+[0.02, 10] cm. The error-bars in the curve stand for the standard deviation of the thickness while the number in parentheses in the legend is the standard deviation of
+the condition number for 30 repetitions.
+thickness, making the numerical calculation unstable. When we
+extended the upper boundary to 100 cm, the searching results
+become Figure 7, which agrees well with the common trends for
+the other material types.
+In Figures 3, 5鈥?, the condition number associated with Al is
+the smallest when the number of measurements M is no more
+than 7, but Fe and Cu have much smaller condition numbers
+when more measurements are allowed. The PMMA has the worst
+condition number regardless of M, which suggests that PMMA
+may not be a good material for spectrum estimation. Fe seems
+to have overall slightly smaller condition numbers than that with
+Cu. This might be attributed to the 0.2 cm minimum thickness
+boundary, as we found that Cu has better performance when the
+range is [0, 5] (see Table 1).
+3.1.5. Maximum Thickness
+As expected, the maximum thickness depends on not only M
+but also the material type. Generally, Cu, Fe, Al, and PMMA
+Frontiers in Physics | www.frontiersin.org
+7
+May 2021 | Volume 9 | Article 678171
+
+
+=== PAGE 8 ===
+Li et al.
+X-Ray Spectrum Estimation With Phantoms
+FIGURE 7 | Optimal thickness arrangement against the best linear arrangement for (A) M = 5 (B) M = 7 (C) M = 10 and (D) M = 15 measurements with PMMA
+within [0.02, 100] cm. The error-bars in the curve stand for the standard deviation of the thickness while the number inside parentheses in the legend is the standard
+deviation of the condition number for 30 repetitions.
+correspond to increasingly larger maximum thicknesses given the
+number of measurements, which agrees well with the relative
+order of their linear attenuation values, as shown in Figure 1.
+If we compare the results for Al in Table 1 with Figures 3B,D
+against Figure 3C, as well as Figures 4A鈥揇 against each other, we
+can 铿乶d that when the maximum thickness is capped, increasing
+the number of measurements large enough makes the condition
+number explode. The rapid explosion of the condition number
+suggests that the increased number of measurements does not
+introduce more information. Unfortunately, this is the case often
+seen in practice; i.e., taking many measurements with a relatively
+small step wedge phantom made of Al, PMMA, or other plastics.
+Using wedges made of Cu or Fe may help address this issue due to
+their much smaller maximum thicknesses required to obtain the
+same number of e铿€ective measurements. In addition, if we relax
+the lower bound of thickness to zero, ten e铿€ective measurements
+can be obtained with Cu and Fe with the condition number being
+about 2,000 as shown in Table 1.
+3.1.6. Shape of the Thickness Sequence
+As projected in the 铿乬ures, the optimal thickness arrangement is
+close to an exponential sequence. The results without maximum
+thickness capping in Figures 3, 5, 7 can be well-铿乼ted into an
+exponential function, as summarized in Table 2. The Sum of
+Squares due to Error (SSE), R-square, and Root Mean Squared
+Error (RMSE) were used to measure the 铿乼ting quality. The 铿乼ting
+results demonstrate that the R-squared values are very close to 1,
+and SSE values are tiny, suggesting the thickness data 铿乼 well into
+an exponential function.
+3.2. Spectrum Estimation With Noisy Data
+To illustrate the impact of the optimal thickness arrangement
+on the quality of spectrum estimation, the spectrum estimations
+from numerically simulated measurements were compared, with
+three step wedges made of Al, including one conventional
+phantom
+and
+two
+speci铿乧ally
+designed
+phantoms.
+The
+conventional step wedge (or conventional phantom) was
+simulated with 50 linearly arranged thicknesses ranging from
+0.05 to 2.50 cm. One special phantom (the linear phantom)
+consists of 15 optimized linearly arranged thicknesses while
+the other wedge phantom (the optimal phantom) consists
+of 15 optimally arranged thicknesses corresponding to the
+results in Figure 3D. The tube spectrum was simulated with
+SpekCalc [6] assuming an operating voltage of 120 kV with a
+default 铿乴ter of 0.8 mm Beryllium, 1 mm Al, and 0.11 mm Cu.
+The spectrum ranges from 12 to 120 keV with a sampling step
+of 1 keV, resulting in N = 109 energy bins. For simplicity,
+we assumed a perfect detector and the transmission data
+were calculated using Equation (5) and only compromised by
+Poisson noise fPoisson(N0p), where fPoisson denotes the Poisson
+distribution and N0 stands for the mean number of incident
+photons. In addition, the tube spectrum is usually measured
+from a small pencil beam con铿乶ed with a collimator, which
+is very similar to the setup for the measurement of the NIST
+attenuation data [21]. Hence, we did not further consider
+the scattering (Compton) since it is already included in the
+LAC data from NIST. The expectation-maximization (EM)
+algorithm was used for the spectrum reconstruction from the
+measurements. An all-one vector except for a few di铿€erent
+values at positions of tungsten characteristic peaks was used
+as the initial guess to help the EM method recover the 铿乶e
+details of the spectrum [14]. Two simulated noise levels
+correspond to the numbers of incident photons N0 = 106 and
+N0 = 108, respectively.
+For a quantitative comparison, two common metrics, the
+normalized root mean squared deviation (NRMSD) and the
+Frontiers in Physics | www.frontiersin.org
+8
+May 2021 | Volume 9 | Article 678171
+
+
+=== PAGE 9 ===
+Li et al.
+X-Ray Spectrum Estimation With Phantoms
+TABLE 2 | Fitting results of the optimal thicknesses curves in Figures 3, 5鈥?, respectively.
+Material
+y = a exp(bx)
+Fitting quality
+a
+b
+SSE
+R-squared
+RMSE
+Al
+M = 5
+4.205 脳 10鈭?
+1.356
+5.518 脳 10鈭?
+0.9999
+4.289 脳 10鈭?
+M = 7
+6.831 脳 10鈭?
+0.9655
+6.523 脳 10鈭?
+0.9998
+3.612 脳 10鈭?
+M = 10
+2.991 脳 10鈭?
+0.5811
+1.751 脳 10鈭?
+0.9998
+4.676 脳 10鈭?
+Cu
+M = 5
+3.255 脳 10鈭?
+1.063
+1.927 脳 10鈭?
+0.9993
+8.015 脳 10鈭?
+M = 7
+3.602 脳 10鈭?
+0.8024
+8.457 脳 10鈭?
+0.9989
+1.301 脳 10鈭?
+M = 10
+3.924 脳 10鈭?
+0.5922
+3.333 脳 10鈭?
+0.9983
+2.041 脳 10鈭?
+M = 15
+5.236 脳 10鈭?
+0.4065
+1.882 脳 10鈭?
+0.9971
+3.805 脳 10鈭?
+Fe
+M = 5
+3.134 脳 10鈭?
+1.119
+2.019 脳 10鈭?
+0.9996
+8.203 脳 10鈭?
+M = 7
+3.507 脳 10鈭?
+0.8419
+1.006 脳 10鈭?
+0.9992
+1.418 脳 10鈭?
+M = 10
+3.888 脳 10鈭?
+0.6184
+4.935 脳 10鈭?
+0.9985
+2.484 脳 10鈭?
+M = 15
+6.093 脳 10鈭?
+0.4141
+1.844 脳 10鈭?
+0.9983
+3.766 脳 10鈭?
+PMMA
+M = 5
+8.191 脳 10鈭?
+1.023
+9.285 脳 10鈭?
+0.9993
+0.1759
+M = 7
+0.2008
+0.6856
+0.4825
+0.9990
+0.3106
+M = 10
+0.5176
+0.4465
+3.486
+0.9982
+0.6602
+M = 15
+1.418
+0.2733
+21.39
+0.9977
+1.283
+mean energy di铿€erence 1E were used with de铿乶itions as follows:
+NRMSD =
+qPN
+i ( 藛wi 鈭抴i)2
+maxi鈭圼1,路路路 ,N]( 藛wi) 鈭抦ini鈭圼1,路路路 ,N]( 藛wi),
+(15)
+1E =
+N
+X
+i=1
+(wi 鈭捤唚i),
+(16)
+where 藛w and w are the estimated spectrum and the ground
+truth, respectively.
+The results from the optimal phantom against the linear
+phantom are shown in Figure 8. Although the two phantoms
+have the same number of thicknesses, the results of the optimal
+phantom demonstrate a greater robustness to the noise and the
+number of iterations as suggested by the stable shape of the
+estimated spectrum in contrast to the oscillation in the linear
+phantom results when the noise is stronger or the number
+of iterations is inadequate. Quantitatively, it can be seen in
+Figures 8A,C that the results from the optimal phantom are in
+a better quality especially for stronger noise than that from the
+linear phantom, also being resilient against inadequate number
+of iterations. When N0 was increased by 100 times, the Poisson
+noise became much smaller, and the reconstructions from both
+phantoms in Figures 8D鈥揊 were improved in both metrics
+relative to those in Figures 8A鈥揅. The results from the optimal
+phantom were still in a better quality. There is a mismatch
+near the regions of the characteristic peaks for both phantoms,
+since the EM method is relatively weak at restoring these high-
+frequency details.
+Similar results from the optimal phantom against those
+from the conventional phantom are shown in Figure 9. Note
+that the conventional phantom has M
+= 50 measurements
+within the range [0.05, 2.5] while the optimal phantom has
+much fewer measurements (M = 15) distributed in the range
+[0.02, 10]. Although the signi铿乧antly more measurements were
+made on the conventional phantom, the results are still worse
+than those from the linear phantom shown in Figure 8, and
+not even comparable to those from the optimal phantom. This
+phenomenon illustrates the key point that blindly increasing the
+number of measurements does not necessarily help the spectrum
+estimation, while a few well-designed measurements may be
+e铿€ectively enough for the purpose.
+4. DISCUSSIONS
+The combinations of heterogeneous materials has a good
+potential to achieve better results. We have summarized the best
+results with individual Al, PMMA, Cu, and Fe materials and
+铿乿e measurements within the range [0, 10] discretized at dl =
+0.001 cm in Table 3. As seen in the table, Cu has the smallest
+condition number around 41.267. When multiple materials are
+used in the same phantom, the condition number can be further
+squeezed. By coding the thicknesses of four materials into one
+chromosome, i.e., l 鈭圼0, 10]20, we can search for the potential
+optimal combinations in a much larger space. Indeed, we have
+found one combination that has achieved a better result than that
+with Cu, with a condition number 38.587. However, searching
+for the optimal solution from a smaller number of measurements
+is possible but the optimization in the case of a large M
+is rather di铿僣ult since the searching space is exponentially
+increased according to (L/dl)4M. Due to the huge searching space
+and limited computing resource, there is a high chance that
+the iterative process will not converge to the global optimal.
+Nevertheless, this is a good topic for future research.
+In our model, we have adopted a widely used spectrum
+model, i.e., decomposing the spectrum into a number of
+energy bins with equal width using a set of basis functions,
+such as delta functions [11] or linear B-splines [14]. This
+Frontiers in Physics | www.frontiersin.org
+9
+May 2021 | Volume 9 | Article 678171
+
+
+=== PAGE 10 ===
+Li et al.
+X-Ray Spectrum Estimation With Phantoms
+FIGURE 8 | Spectrum estimations from M = 15 optimally arranged thicknesses against M = 15 best linearly arranged thicknesses through Niter iterations under two
+noise levels characterized by N0, (A) N0 = 106, Niter = 2.00 脳 103, (B) N0 = 106, Niter = 2.00 脳 104, (C) N0 = 106, Niter = 2.00 脳 105, (D) N0 = 108,
+Niter = 2.00 脳 103, (E) N0 = 108, Niter = 2.00 脳 104, and (F) N0 = 108, Niter = 2.00 脳 105. The initialization is shifted upward by 0.03 for better visibility. The mean
+energy difference and the NRMSD of the estimated spectra against the ground truth are included.
+method is intuitive but introduces too many unknown variables
+(equal to the number of bins N), making the inverse problem
+highly under-determined. Inspired by Zhao et al. [13], we can
+signi铿乧antly reduce the degree of freedom by approximating the
+spectrum as the sum of basis functions in the form of a set of
+known spectra,
+S(E) =
+Ns
+X
+k=1
+ckSk(E),
+(17)
+where
+coe铿僣ients
+ck
+are
+the
+weights
+over
+Ns
+known
+spectra with di铿€erent 铿乴ters. In practice, Ns is often smaller
+than 10 in contrast to N
+>
+100. Then, the spectrum
+estimation becomes over-determined. With our optimized
+thickness
+arrangement,
+a
+signi铿乧antly
+reduced
+number
+of
+measurements
+should
+result
+in
+a
+more
+robust
+and
+accurate spectrum.
+Based on our results, the optimal thickness arrangement
+should be close to an exponential sequence. However, the
+commonly available step-wedge phantoms often have the step
+wedge thicknesses linearly arranged. Here, we suggest two easy-
+to-implement techniques which can achieve various transmission
+thicknesses with either slabs or rods. Using a rod with a proper
+radius r and let an X-ray pencil beam penetrate through the
+rod with the rod placed perpendicular to the beam propagation
+direction, then the X-ray path length (i.e., the transmission
+thickness) can be adjusted by varying the distance d between the
+pencil beam and the rod center, by lateral translation of the rod,
+which is expressed as l = 2
+鈭?
+r2 鈭抎2. With a slab of thickness t,
+by inclining the slab to form an angle 胃 smaller than 90鈼ith the
+X-ray beam, the X-ray path length can be computed as t/ cos 胃.
+With these techniques, a series of customized thicknesses can
+be obtained.
+5. CONCLUSION
+We have studied the optimal thickness arrangement for
+transmission data measurements with commonly available
+Frontiers in Physics | www.frontiersin.org
+10
+May 2021 | Volume 9 | Article 678171
+
+
+=== PAGE 11 ===
+Li et al.
+X-Ray Spectrum Estimation With Phantoms
+FIGURE 9 | Spectrum estimations from M = 15 optimally arranged thicknesses against M = 50 conventional linearly arranged thicknesses through Niter iterations
+under two noise levels characterized by N0, (A) N0 = 106, Niter = 2.00 脳 103, (B) N0 = 106, Niter = 2.00 脳 104, (C) N0 = 106, Niter = 2.00 脳 105 (D) N0 = 108,
+Niter = 2.00 脳 103, (E) N0 = 108, Niter = 2.00 脳 104, and (F) N0 = 108, Niter = 2.00 脳 105. The initialization is shifted upward by 0.03 for better visibility. The mean
+energy difference and the NRMSD of the estimated spectra against the ground truth are included.
+TABLE 3 | Optimal thickness arrangements for M = 5 measurements with each of the material types including Al, PMMA, Cu, and Fe, as well as one exemplary
+arrangement with the combination of four materials yielding a smaller condition number.
+Material
+Thickness, unit: cm
+Condition #
+Single
+Al
+0.000
+0.034
+0.196
+0.831
+3.464
+82.574
+PMMA
+0.000
+0.393
+1.750
+4.835
+10.000
+626.206
+Cu
+0.000
+0.002
+0.011
+0.063
+0.341
+41.267
+Fe
+0.000
+0.002
+0.016
+0.088
+0.470
+42.341
+Combination
+Al
+0.000
+0.066
+0.000
+0.000
+0.001
+38.587
+PMMA
+0.001
+0.372
+0.001
+0.001
+0.914
+Cu
+0.054
+0.000
+0.000
+0.340
+0.000
+Fe
+0.015
+0.014
+0.000
+0.001
+0.000
+materials, including Al, PMMA, Cu, and Fe, for high-quality
+X-ray spectrum estimation, and the condition number of the
+system matrix has been minimized via genetic evolution. Then,
+under various conditions the spectra have been estimated via
+EM iteration. Several interesting observations have been made
+as follows:
+1. Compared with the best linear arrangement of thicknesses,
+the
+condition
+number
+of
+the
+system
+matrix
+can
+be
+Frontiers in Physics | www.frontiersin.org
+11
+May 2021 | Volume 9 | Article 678171
+
+
+=== PAGE 12 ===
+Li et al.
+X-Ray Spectrum Estimation With Phantoms
+improved by orders of magnitude with the optimal non-
+linear arrangement;
+2. Each material can only support a very limited number
+of measurements since the condition number exponentially
+expands as the number of measurements increases;
+3. The maximum thickness required by the optimal arrangement
+increases as the number of measurements increases;
+4. The aforementioned maximum thickness also depends on
+material type, and generally it goes in a descending order for
+PMMA, Al, Fe, and Cu, whose linear attenuation coe铿僣ients
+become increasingly larger in the order of these material types;
+5. Within the maximum thickness, further increasing the
+number of measurements does not provide more bene铿乼, as
+indicated by the explosion of the condition number;
+6. When the minimum thickness is constrained, e.g., l0 > 0.02
+cm, the Al achieves the best result when M 鈮?, but for larger
+M, Fe, and Cu are better choices;
+7. PMMA has the worst outcome among the four materials
+regardless of M, which implies that it may not be an
+appropriate material for this task, although it has been
+widely used;
+8. The
+optimal
+thickness
+arrangement
+follows
+an
+exponential sequence.
+The spectrum estimation performance with the EM algorithm
+has also been studied with the measurements from optimally
+arranged thicknesses, best linearly arranged thicknesses and
+conventional linearly arranged thicknesses, with Poisson noise
+of di铿€erent levels. The results from the optimal phantom
+demonstrate a superior performance over the other two
+in
+both
+NRMSD
+and
+mean
+energy
+di铿€erence
+metrics,
+demonstrating robustness to noise. These results suggest
+that with optimized thicknesses and a proper material, the
+number of measurements can be signi铿乧antly reduced while
+still obtaining decent estimation quality. Our future work
+will consider the combination of di铿€erent materials per
+measurement for even better results and the validation with
+physical experiment data.
+DATA AVAILABILITY STATEMENT
+The original contributions presented in the study are included
+in the article/supplementary material, further inquiries can be
+directed to the corresponding author/s.
+AUTHOR CONTRIBUTIONS
+The research about X-ray tube spectrum estimation with
+optimized measurements was proposed by ML. The research
+funds were provided by GW. The experiments were designed by
+all authors and carried out by ML. The manuscript was prepared
+by ML and revised by all authors.
+FUNDING
+This work was 铿乶ancially supported in part by National
+Institutes of Health under award numbers R01CA237267
+(NCI),
+R01CA233888
+(NCI),
+R01HL151561
+(HHS),
+and
+R01EB026646 (NIBIB).
+ACKNOWLEDGMENTS
+The authors would like to thank Shan Gao, Rensselaer
+Polytechnic Institute, for the help with data 铿乼ting work and
+preparing the summary table.
+REFERENCES
+1. Jarry G, DeMarco J, Beifuss U, Cagnon C, McNitt-Gray M. A Monte
+Carlo-based method to estimate radiation dose from spiral CT: from
+phantom testing to patient-speci铿乧 models. Phys Med Biol. (2003) 48:2645.
+doi: 10.1088/0031-9155/48/16/306
+2. DeMarco J, Cagnon C, Cody D, Stevens D, McCollough CH, O鈥橠aniel J, et al. A
+Monte Carlo based method to estimate radiation dose from multidetector CT
+(MDCT): cylindrical and anthropomorphic phantoms. Phys Med Biol. (2005)
+50:3989. doi: 10.1088/0031-9155/50/17/005
+3. Chang S, Li M, Yu H, Chen X, Deng S, Zhang P, et al. Spectrum
+estimation-guided iterative reconstruction algorithm for dual energy CT.
+IEEE Trans Med Imaging. (2019) 39:246鈥?8. doi: 10.1109/TMI.2019.29
+24920
+4. Baer M, Kachelrie脽 M. Hybrid scatter correction for CT imaging. Phys Med
+Biol. (2012) 57:6849. doi: 10.1088/0031-9155/57/21/6849
+5. Li M, Rundle DS, Wang G. X-ray photon-counting data correction through
+deep learning. arXiv. (2020) 200703119.
+6. Poludniowski G, Landry G, DeBlois F, Evans P, Verhaegen F. SpekCalc: a
+program to calculate photon spectra from tungsten anode X-ray tubes. Phys
+Med Biol. (2009) 54:N433. doi: 10.1088/0031-9155/54/19/N01
+7. Duan X, Wang J, Yu L, Leng S, McCollough CH. CT scanner X鈥搑ay spectrum
+estimation from transmission measurements. Med Phys. (2011) 38:993鈥?.
+doi: 10.1118/1.3547718
+8. Leinweber C, Maier J, Kachelrie脽 M. X鈥搑ay spectrum estimation for accurate
+attenuation simulation. Med Phys. (2017) 44:6183鈥?4. doi: 10.1002/mp.12607
+9. Ha W, Sidky EY, Barber RF, Schmidt TG, Pan X. Estimating the
+spectrum
+in
+computed
+tomography
+via
+Kullback鈥揕eibler
+divergence
+constrained optimization. Med Phys. (2019) 46:81鈥?2. doi: 10.1002/mp.
+13257
+10. Lee JS, Chen JC. A single scatter model for X-ray CT energy spectrum
+estimation and polychromatic reconstruction. IEEE Trans Med Imaging.
+(2015) 34:1403鈥?3. doi: 10.1109/TMI.2015.2395438
+11. Ruth C, Joseph PM. Estimation of a photon energy spectrum for a computed
+tomography scanner. Med Phys. (1997) 24:695鈥?02. doi: 10.1118/1.598159
+12. Yang Y, Mou X, Chen X. A robust X-ray tube spectra measuring method by
+attenuation data. In: Flynn MJ, Hsieh J, editors. Medical Imaging 2006: Physics
+of Medical Imaging, Vol. 6142. San Diego, CA: International Society for Optics
+Photonics (2006). p. 61423K. doi: 10.1117/12.654180
+13. Zhao W, Niu K, Schafer S, Royalty K. An indirect transmission measurement-
+based spectrum estimation method for computed tomography. Phys Med Biol.
+(2014) 60:339. doi: 10.1088/0031-9155/60/1/339
+14. Sidky EY, Yu L, Pan X, Zou Y, Vannier M. A robust method of X-ray
+source spectrum estimation from transmission measurements: demonstrated
+on computer simulated, scatter-free transmission data. J Appl Phys. (2005)
+97:124701. doi: 10.1063/1.1928312
+15. Lin Y, Ramirez鈥揋iraldo JC, Gauthier DJ, Stierstorfer K, Samei E. An
+angle鈥揹ependent estimation of CT X鈥搑ay spectrum from rotational
+transmission measurements. Med Phys. (2014) 41:062104. doi: 10.1118/1.48
+76380
+16. Zhao W, Xing L, Zhang Q, Xie Q, Niu T. Segmentation-free X-
+ray
+energy
+spectrum
+estimation
+for
+computed
+tomography
+using
+Frontiers in Physics | www.frontiersin.org
+12
+May 2021 | Volume 9 | Article 678171
+
+
+=== PAGE 13 ===
+Li et al.
+X-Ray Spectrum Estimation With Phantoms
+dual-energy material decomposition. J Med Imaging. (2017) 4:023506.
+doi: 10.1117/1.JMI.4.2.023506
+17. Gautschi
+W,
+Inglese
+G.
+Lower
+bounds
+for
+the
+condition
+number
+of
+Vandermonde
+matrices.
+Numer
+Math.
+(1987)
+52:241鈥?0.
+doi: 10.1007/BF01398878
+18. Golberg DE. Genetic algorithms in search, optimization, and machine
+learning. Addion Wesley. (1989) 1989:36.
+19. Hubbell JH, Seltzer SM. Tables of X-Ray Mass Attenuation Coe铿僣ients
+and Mass Energy-Absorption Coe铿僣ients (Version 1.4). Gaithersburg, MD:
+National Institute of Standards Technology (2004). Available online at: http://
+physics.nist.gov/xaamdi (accessed January 20, 2020).
+20. Berger MJ, Hubbell J. XCOM: Photon Cross Sections on a Personal Computer.
+Washington, DC: National Bureau of Standards; Center for Radiation
+...(1987). doi: 10.6028/NBS.IR.87-3597
+21. Hubbell J. Photon Cross Sections, Attenuation Coe铿僣ients and Energy
+Absorption Coe铿僣ients. National Bureau of Standards Report NSRDS-NBS29,
+Washington DC (1969). doi: 10.6028/NBS.NSRDS.29
+Con铿俰ct of Interest: The authors declare that the research was conducted in the
+absence of any commercial or 铿乶ancial relationships that could be construed as a
+potential con铿俰ct of interest.
+Copyright 漏 2021 Li, Fan, Cong and Wang. This is an open-access article distributed
+under the terms of the Creative Commons Attribution License (CC BY). The use,
+distribution or reproduction in other forums is permitted, provided the original
+author(s) and the copyright owner(s) are credited and that the original publication
+in this journal is cited, in accordance with accepted academic practice. No use,
+distribution or reproduction is permitted which does not comply with these terms.
+Frontiers in Physics | www.frontiersin.org
+13
+May 2021 | Volume 9 | Article 678171
+
+
