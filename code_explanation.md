@@ -566,7 +566,124 @@ This workspace focus on validating XRT image quality and extracting standard sam
     1. 自动调用 pip 安装 `customtkinter`、`pyinstaller`、`matplotlib` 等所需包。
     2. 执行 `pyinstaller` 打包命令。为了解决 Anaconda 环境下 `torchaudio` 库因缺失部分 DLL 入口导致打包进程报错中断的问题，在打包指令中添加了 `--exclude-module torchaudio --exclude-module torch --exclude-module torchvision` 参数，完全绕过与音频、神经网络库相关的多余二进制扫描，确保纯净安全打包。
 
+### `PCD/divide_al_sheet.py`
+- **Purpose**: 将绑有铁片的铝阶梯（step3）样品数据按横向区域（左、中、右）进行分割提取。左侧为纯 Al 区域，中间为绑有 0.3mm 铁片的区域，右侧为绑有 0.6mm (2片) 铁片的区域。
+- **Functions**:
+    - `divide_and_extract_al_steps(contour_results_dir, margin_x, margin_y, scale)`:
+        - **核心逻辑**：自动遍历指定轮廓提取输出目录下的各个能量段子文件夹（同时支持以 `_dual` 和 `_noNorm_R` 结尾的能量通道目录，如 `20_dual`, `180kV_1mA+MERGE_E_100-110keV_post_L__post_noNorm_R` 等），读取 Al 阶梯的低能与高能 PNG 图像。将宽度横向等分为左、中、右三等份，高度等分为 10 层台阶。在每个台阶的采样单元格内部将其在 x 和 y 方向按 `scale` 比例缩小（并进一步叠加 `margin_x` 与 `margin_y` 采样核心边距以滤除分界线和过渡区影响）提取出像素，过滤背景色（65535/255）后保存对应的全称形式 `.pkl` 文件（如 `*_left.pkl`、`*_mid.pkl`、`*_right.pkl`，自动删除并清理旧的缩写后缀文件）及对应未压缩整体面积裁剪的 `.png` 图片。
+        - **参数解释**：
+            - `contour_results_dir` (str): 轮廓结果提取输出根目录。
+            - `margin_x` (float): 在每个分割区域内横向提取像素时左右两端剔除的比例，默认 `0.15`。
+            - `margin_y` (float): 在每个台阶纵向提取像素时上下两端剔除的比例，默认 `0.25`。
+            - `scale` (float): 每个阶梯（台阶）单元格内缩放（缩小）的比例，默认 `0.9`，用于过滤台阶四周边缘的本底噪声和过渡段影响。
 
+### `PCD/fit_hl_curve_dual.py`
+- **Purpose**: 对双能光子计数器采集的 Cu、Fe 阶梯以及 Al 阶梯的左边区域（三者厚度均为 2-20mm）进行对数衰减拟合分析，同时支持归一化数据（低能通道 `pixels_low`）与原始未归一化数据（高能通道 `pixels_high`）的对比分析。
+- **Functions**:
+    - `find_linear_pts(x_pts, y_pts)`:
+        - **核心逻辑**：自适应寻找对数衰减曲线中最长的优秀物理线性段。从最薄的 3 个台阶开始逐步加入后续台阶，在决定系数 $R^2$ 出现明显下降时发生截断。
+        - **参数解释**：
+            - `x_pts` (np.ndarray): 台阶物理厚度一维数组。
+            - `y_pts` (np.ndarray): 台阶对数衰减均值一维数组。
+    - `get_clean_ylim(vals, default_max)`:
+        - **核心逻辑**：计算干净且物理合理的 Y 轴显示区间限制（下限强制为 0.0，上限根据最大百分位数向上取整到美观的整数值）。
+        - **参数解释**：
+            - `vals` (list or np.ndarray): 包含数据点的数值列表，用于统计最大值。
+            - `default_max` (float): 数据为空时的默认上限。
+    - `perform_dual_channel_analysis(energy_band, samples_dict, output_subdir, title_prefix, x_label, x_coords_dict, I0_norm, I0_raw, raw_lims_norm, log_lims_norm, raw_lims_raw, log_lims_raw)`:
+        - **核心逻辑**：对双通道（归一化后的数据 + 归一化前的原始数据）样品进行 2x2 衰减特性综合分析 and 绘图。第一行为归一化数据，第二行为原始数据；各行左子图绘制灰度值 vs 厚度，右子图绘制对数衰减 vs 厚度（并标注自适应线性拟合段）。
+        - **参数解释**：
+            - `energy_band` (str): 能量段名称。
+            - `samples_dict` (dict): 样品灰度数组字典。
+            - `output_subdir` (str): 落地子目录。
+            - `I0_norm` (float): 归一化低能数据的背景参考值。
+            - `I0_raw` (float): 原始高能数据的背景参考值（外部动态计算传入）。
+    - `plot_combined_slope_summaries(global_raw_data_norm, global_raw_data_raw, thicknesses, mu_mode, mat_physics, step_mats, output_dir)`:
+        - **核心逻辑**：生成 2x2 折线大图，第一行绘制归一化数据（左子图：衰减系数 $\mu$ 或 $\mu_m$ 随能量变化，右子图：两两材质比值随能量变化）；第二行绘制原始通道数据对应的衰减与比值曲线，并附带基于物理计算的理论极限 PH（光电）和 Compton（康普顿）辅助线。为了方便跨厚度横向比对，不同厚度大图之间的 Y 轴范围全局完全一致。
+        - **参数解释**：
+            - `global_raw_data_norm` (dict): 归一化数据汇总。
+            - `global_raw_data_raw` (dict): 原始通道数据汇总。
+            - `thicknesses` (dict): 材质厚度映射。
+            - `mu_mode` (str): 衰减类型模式（'mu' 或 'mu_m'）。
+            - `mat_physics` (dict): 材质常数物理性质。
+            - `step_mats` (dict): 材质名称与标识映射。
+            - `output_dir` (str): 输出目标根目录。
+    - `plot_mu_vs_thickness(global_raw_data_norm, global_raw_data_raw, thicknesses, mu_mode, mat_physics, step_mats, output_dir)`:
+        - **核心逻辑**：生成一幅 3x2 的大图，每行代表一种材质 (Cu、Fe、Al)，第一列为归一化数据，第二列为原始数据。横轴为物理厚度，纵轴为衰减系数 $\mu$ 或 $\mu_m$，绘制不同能量段下的衰减系数随厚度的变化情况。
+        - **参数解释**：同 `plot_combined_slope_summaries`。
+    - `main()`:
+        - **核心逻辑**：主控制流程。扫描以 `_dual` 或 `_noNorm_R` 结尾的能量通道文件夹并排序（对于新能段命名，支持从诸如 `_E_100-110keV` 中智能匹配提取实际能量段 `100` 以防和管电压 `180` 发生冲突而错乱），加载数据后计算各台阶的平均对数衰减值，调用 `perform_dual_channel_analysis` 绘图，最后分别针对 'mu' 和 'mu_m' 调用 `plot_combined_slope_summaries` 输出 2x2 汇总折线大图与归档 JSON，并调用 `plot_mu_vs_thickness` 绘制衰减系数随厚度变化图。
+
+### `PCD/compare_180kV_160kV.py`
+- **Purpose**: 对双能光子计数器采集的 `20260512_180kV` 和 `160kV` 两个电压数据集，在相同的能量通道段（20keV - 130keV）下，加载并叠加绘制 steps 和 combined 里面的衰减结果，提供直观的跨电压衰减性能对比。
+- **Workflow**:
+    1. 扫描两组数据的能量通道目录，提取实际能量数值（keV），并寻找共有的能量段（共 12 个能段：20keV ~ 130keV）进行对齐。
+    2. 对每个共有能量段，基于各材质（Cu、Fe、Al_left）的像素数据动态估算原始通道的背景值 $I_{0,\mathrm{raw}} = 1.15 \times I_{\mathrm{raw,max}}$。
+    3. 调用 `perform_combined_voltage_analysis` 为每个共有能量段绘制 2x2 网格对比图（实线圆形代表 180kV，虚线方形代表 160kV，包含低能归一化和高能原始的灰度值 vs 厚度及对数衰减自适应线性拟合图），保存在 `steps/compare_E_{keV}keV.png`。
+    4. 分别针对线衰减（`mu`）和质量衰减（`mu_m`）模式，调用 `plot_combined_voltage_slope_summaries` 生成随能量变化的 180kV 与 160kV 衰减系数及两两材质比值折线汇总大图，保存在 `combined/slope_summary_{mu_mode}/compare_slope_summary_{step_name}.png`。
+    5. 调用 `plot_combined_voltage_mu_vs_thickness` 绘制随厚度变化的三材质衰减系数在各能量段下的对比折线大图，保存在 `combined/compare_mu_vs_thickness_Cu_Fe_Al_{mu_mode}.png`。
+- **Functions**:
+    - `find_linear_pts(x_pts, y_pts)`:
+        - **核心逻辑**：自适应寻找对数衰减曲线中最长的优秀物理线性段。从最薄的 3 个台阶开始逐步加入后续台阶，在决定系数 $R^2$ 出现明显下降时发生截断。
+        - **参数解释**：
+            - `x_pts` (np.ndarray): 台阶实际物理厚度（mm）的一维数组。
+            - `y_pts` (np.ndarray): 各台阶对应的对数衰减强度均值的一维数组。
+    - `get_clean_ylim(vals, default_max)`:
+        - **核心逻辑**：计算干净且物理合理的 Y 轴显示区间限制（下限强制为 0.0，上限根据最大百分位数向上取整到美观的整数值，以防负值轴污染对比效果）。
+        - **参数解释**：
+            - `vals` (list or np.ndarray): 包含所有数据点的数值列表，用于统计最大值。
+            - `default_max` (float): 数据为空时的默认上限值。
+    - `perform_combined_voltage_analysis(energy_band_num, samples_dict_180, samples_dict_160, output_subdir, x_coords_dict, I0_norm, I0_raw_180, I0_raw_160, raw_lims_norm, log_lims_norm, raw_lims_raw, log_lims_raw)`:
+        - **核心逻辑**：对 180kV 与 160kV 双电压在同一能量段下的低能归一化与高能原始通道数据进行 2x2 对比分析并绘图。在同一子图中叠加绘制不同电压下的三材质灰度值和对数衰减数据及线性拟合。
+        - **参数解释**：
+            - `energy_band_num` (int): 当前能量通道的中心数值（如 20 代表 20-30keV）。
+            - `samples_dict_180` (dict): 180kV 样品数据字典，格式为 `{mat_name: (L_list, H_list)}`，值为 10 阶像素数组列表。
+            - `samples_dict_160` (dict): 160kV 样品数据字典，格式同上。
+            - `output_subdir` (str): 结果图像文件保存的目标子目录。
+            - `x_coords_dict` (dict): 各材质的厚度数组映射表，格式为 `{mat_name: ndarray}`。
+            - `I0_norm` (float): 低能通道归一化背景强度参考值，默认 52428.0。
+            - `I0_raw_180` (float): 180kV 高能原始通道的背景强度参考值（外部动态计算传入）。
+            - `I0_raw_160` (float): 160kV 高能原始通道的背景强度参考值（外部动态计算传入）。
+            - `raw_lims_norm` / `log_lims_norm` / `raw_lims_raw` / `log_lims_raw` (tuple): 分别为低能归一化灰度值、低能归一化对数衰减、高能原始灰度值、高能原始对数衰减的自适应 Y 轴区间限制。
+    - `plot_combined_voltage_slope_summaries(global_raw_data_norm_180, global_raw_data_norm_160, global_raw_data_raw_180, global_raw_data_raw_160, thicknesses, mu_mode, mat_physics, step_mats, output_dir)`:
+        - **核心逻辑**：绘制随能量变化的 180kV 与 160kV 的衰减系数及比值对比，生成 2x2 折线汇总图并落地保存。在每个子图中，180kV 数据以实线圆形画出，160kV 数据以虚线方形画出，实现直观跨电压衰减斜率对比。
+        - **参数解释**：
+            - `global_raw_data_norm_180` / `global_raw_data_norm_160` (dict): 180kV 与 160kV 归一化后的数据汇总。
+            - `global_raw_data_raw_180` / `global_raw_data_raw_160` (dict): 180kV 与 160kV 原始高能通道数据汇总。
+            - `thicknesses` (dict): 各材质的厚度映射，格式为 `{mat_name: ndarray}`。
+            - `mu_mode` (str): 衰减模式（'mu' 或者是 'mu_m'）。
+            - `mat_physics` (dict): 材质的物理参数（Z, Ar, rho）。
+            - `step_mats` (dict): 材质名称与文件标识对应映射。
+            - `output_dir` (str): 图表保存的目标根目录。
+    - `plot_combined_voltage_mu_vs_thickness(global_raw_data_norm_180, global_raw_data_norm_160, global_raw_data_raw_180, global_raw_data_raw_160, thicknesses, mu_mode, mat_physics, step_mats, output_dir)`:
+        - **核心逻辑**：绘制随厚度变化的三材质衰减系数，生成 3x2 汇总大图，并在同一子图中对比 180kV 与 160kV 的衰减情况。实线圆形代表 180kV 数据，虚线方形代表 160kV 数据，不同颜色曲线代表不同能量段。
+        - **参数解释**：与 `plot_combined_voltage_slope_summaries` 相同。
+    - `main()`:
+        - **核心逻辑**：主控制流程。扫描能量段目录，对齐共有能量段，批量载入各通道数据包，估算高能未衰减背景值，并分别调度 `perform_combined_voltage_analysis`（在 steps 子目录下生成 12 个能段 2x2 跨电压对比图），以及调用两类 mu 模式下的 slope 汇总图与厚度衰减系数大图绘制函数。
+
+### `detector_raw_intensity/evaluate_inverse_square.py`
+- **Purpose**: 用于分析给定不同电压下 (120kV, 140kV, 160kV) 双能探测器的原始灰度值 (CSV 格式)，以评估其辐射强度分布是否符合与距离的平方反比定律 (或 $\cos^3 \theta$ 分布)。同时根据放置了物体的参考数据 (160kV_4mA_rawdata_with_sticks.csv)，确定皮带的左右物理边缘对应的探测器像素位置。
+- **Workflow**:
+    1. 读取参考数据，寻找信号强度的显著下降点，精确定位左右皮带边缘位置 (左: 111, 右: 1419)。
+    2. 根据理论推导 (边缘与焦点成 45° 角) 构建理论上的平方反比 ($1/r^2$) 或 $\cos^3 \theta$ 归一化辐射分布曲线。
+    3. 提取中心区域像素的中位数对数据进行归一化。
+    4. 将实测数据的归一化灰度分布与理论曲线叠加绘制，并计算有效区间内的 $R^2$ 拟合优度，最终输出带有拟合指标的高低能独立对比图像。
+
+
+
+
+## 2026-06-12
+- **Unified Global Y-Limits for Summary Plots**: 优化了 [PCD/fit_hl_curve_dual.py](file:///e:/photo_electric_II/PCD/fit_hl_curve_dual.py) 中的汇总图纵坐标。现在通过两阶段计算逻辑，搜集并统计所有 10 个厚度台阶下的衰减系数和材质比值，计算出统一的全局 Y 轴上下限。这使得不同厚度台阶（不同大图）之间的 Y 轴范围和跨度完全一致，更加方便横向数据对比。
+- **New mu vs Thickness Plot**: 在 [PCD/fit_hl_curve_dual.py](file:///e:/photo_electric_II/PCD/fit_hl_curve_dual.py) 中新增了 `plot_mu_vs_thickness` 函数，生成了展示线衰减 $\mu$ (和质量衰减 $\mu_m$) 随厚度变化的 3x2 大图（包含 Cu、Fe、Al_left 三种材质，归一化和原始两套数据，不同颜色曲线代表不同能量段），落地保存在 `combined/` 目录下。
+- **Combined Slope Summary 2x2 Grid**: 优化了 [PCD/fit_hl_curve_dual.py](file:///e:/photo_electric_II/PCD/fit_hl_curve_dual.py) 中的汇总折线图绘制逻辑。将原先独立输出的 `norm`（归一化）和 `raw`（原始通道）两套 1x2 汇总图合并到了同一个 2x2 网格的大图（第一行为归一化数据，第二行为原始数据，左侧为衰减系数随能量段变化，右侧为两两材质衰减比值），并保存在 `combined/slope_summary_{mu_mode}` 目录下，大大方便了数据的直观横向对比，同时仍然保留了对 `norm` 和 `raw` 双通道 JSON 参数文件的分别归档导出。
+- **Y-Axis Limits Correction**: 优化了 [PCD/fit_hl_curve_dual.py](file:///e:/photo_electric_II/PCD/fit_hl_curve_dual.py) 中的 Y 轴上下限计算逻辑。引入了 `get_clean_ylim` 函数，强行将灰度强度值和对数衰减值的 Y 轴下限约束为 `0.0`，从而避免出现物理上不合理的负数轴，并自适应将上限向上取整为美观干净的整数值（如 5.0、1600.0 或 50000.0），确保多能量通道折线图和 2x2 剖析图在不同能量段下的纵坐标区间高度统一和严谨对比。
+- **HL Curve Analysis for Photon Counter**: 将脚本移动并放置在 [PCD/fit_hl_curve_dual.py](file:///e:/photo_electric_II/PCD/fit_hl_curve_dual.py)。根据最新 analysis 需求，同时支持对归一化数据（低能通道 `pixels_low`）和归一化前的原始数据（高能通道 `pixels_high`）的拟合分析。各能量段（20keV-130keV）的绘图结构升级为 2x2 网格（第一行为归一化数据，第二行为原始数据，各包含灰度衰减和对数衰减自适应线性拟合），且原始数据的对数衰减采用了基于每个能量段最大灰度值动态计算的未衰减背景值 $I_{0,\mathrm{raw}} = 1.15 \times I_{\mathrm{raw,max}}$，确保数值物理合理性且不同通道间纵坐标高度一致以便横向对比。多能量通道 of slope_summary 汇总折线图与归档 JSON 相应为 `norm` 和 `raw` 两套数据分别输出，流程仅耗时 27 秒即完成全量计算。
+- **Al Step Partitioning for Iron Sheets**: 新增脚本 [divide_al_sheet.py](file:///e:/photo_electric_II/PCD/divide_al_sheet.py) 用于将 Al 阶梯（step3）数据在横向上划分为左（纯 Al）、中（Al + 0.3mm Fe 铁片）、右（Al + 0.6mm Fe 铁片）三个区域，在每个阶梯单元格内部按 10 层台阶高度（附加 `margin_x` 与 `margin_y` 采样核心边距以滤除分界线和过渡区影响）提取出像素，过滤背景色（65535/255）后保存对应的全称形式 `.pkl` 文件（如 `*_left.pkl`、`*_mid.pkl`、`*_right.pkl`，自动删除并清理旧的缩写后缀文件）及对应未压缩整体面积裁剪的 `.png` 图片。同时在各 `_dual` 能量段子文件夹下输出带有区域划分黄色分界线 and 10 阶采样核心框标注的可视化图像 `*_step_sample_3_division.png` 用于物理校验。
+
+## 2026-06-11
+- **Inverse Square Law Analysis**: 新增脚本 detector_raw_intensity/evaluate_inverse_square.py 用于评估 X 射线探测器灰度值是否满足平方反比定律，并确定皮带边缘在探测器上的像素位置 (左右侧分别对应像素 111 和 1419)。
+- **R2 Metric & Artifact Analysis**: 在平方反比拟合曲线的图例中新增了决定系数 $R^2$ 评估拟合优度，并在报告中揭示了高能图像正中心(像素 767/768 处)由于双能探测器双模块物理拼接所导致的特征凹点/缝隙伪影(Module Seam/Gap)。
+- **R2 Summary Table**: 在分析报告中补充了详细的 $R^2$ 拟合公式与各个电压/能量下的拟合结果对照表格。
 
 ## 2026-05-29
 - **Feature**: Excel Assayer Data & XRF Number Filling.
