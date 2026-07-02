@@ -532,6 +532,49 @@ def plot_simple_hist(configs, channel_name, title_suffix, save_path):
     plt.savefig(save_path); print(f"Simple overall histogram saved to {save_path}")
 
 
+def plot_single_step_hist(configs, channel_name, title_suffix, step_idx, save_path):
+    """
+    单独绘制并保存阶梯数据集中特定阶梯的灰度/强度分布直方图。
+
+    参数类型、含义及用法：
+    - configs (list of dict): 配置列表，每个元素为一个字典，包含 'data' 和 'label' 键。
+                              其中 'data' 为 (low_pixels, high_pixels) 的元组，
+                              low_pixels 和 high_pixels 分别是包含 10 个阶梯对应像素数组的列表；
+                              'label' (str) 为用于图例展示的数据集标签。
+    - channel_name (str): 能量通道描述字符串，可选 'Low' (低能通道) 或 'High' (高能通道)。
+    - title_suffix (str): 用于图表标题的后缀，例如 "Material" 或 "Exposure Time"。
+    - step_idx (int): 要绘制的阶梯的 0-based 索引。0 代表第 1 个阶梯 (Step 1)。
+    - save_path (str): 最终生成的直方图图片保存的绝对或相对磁盘路径。
+
+    返回值：
+    - None
+    """
+    plt.figure(figsize=(10, 6))
+    if len(configs) == 2:
+        colors = ['#1f77b4', '#d62728'] # 蓝、红高对比度颜色
+    else:
+        colors = plt.cm.tab10(np.linspace(0, 1, len(configs)))
+        
+    idx = 0 if channel_name.lower() == 'low' else 1
+    all_d = [cfg['data'][idx][step_idx] for cfg in configs]
+    v_min = min(np.min(d) for d in all_d)
+    v_max = max(np.max(d) for d in all_d)
+    bins = np.linspace(v_min, v_max, 50)
+    
+    for j, cfg in enumerate(configs):
+        plt.hist(all_d[j], bins=bins, alpha=0.45, label=cfg['label'], color=colors[j], density=True, edgecolor='black', linewidth=0.5)
+    
+    plt.title(f'Step {step_idx+1} ({title_suffix}): {channel_name} Energy', fontsize=14, fontweight='bold')
+    plt.xlabel('Intensity', fontsize=12)
+    plt.ylabel('Density', fontsize=12)
+    plt.grid(True, linestyle=':', alpha=0.6)
+    plt.legend(loc='upper right')
+    plt.tight_layout()
+    plt.savefig(save_path)
+    plt.close()
+    print(f"Single step histogram saved to {save_path}")
+
+
 def run_comparison(configs_desc, title_suffix, prefix, is_xy=False):
     """Main entry point for routing to different plotting modes."""
     os.makedirs('results/Tube_comparison', exist_ok=True)
@@ -567,6 +610,14 @@ def run_comparison(configs_desc, title_suffix, prefix, is_xy=False):
             plot_step_means(configs, title_suffix, f'results/Tube_comparison/{prefix}_means.png')
             plot_step_hist_grid(configs, "Low", title_suffix, f'results/Tube_comparison/{prefix}_hist_low.png')
             plot_step_hist_grid(configs, "High", title_suffix, f'results/Tube_comparison/{prefix}_hist_high.png')
+            # Separately save step 1 for low energy
+            plot_single_step_hist(
+                configs=configs,
+                channel_name="Low",
+                title_suffix=title_suffix,
+                step_idx=0,
+                save_path=f'results/Tube_comparison/{prefix}_hist_low_step1.png'
+            )
         else:
             plot_simple_means(configs, title_suffix, f'results/Tube_comparison/{prefix}_means.png')
             plot_simple_hist(configs, "Low", title_suffix, f'results/Tube_comparison/{prefix}_hist_low.png')
@@ -1191,5 +1242,24 @@ def main():
     # 3. Comprehensive Stepped Specimen Analysis (0331, 0407, 0409)
     run_stepped_specimen_analysis(mu_mode=mu_mode)
 
+
+def main_ppt():
+    # Setup plotting aesthetics for Chinese text
+    plt.rcParams['font.sans-serif'] = ['SimHei'] 
+    plt.rcParams['axes.unicode_minus'] = False
+
+    # Choose attenuation coefficient mode: 'mu' (Linear, mm^-1) or 'mu_m' (Mass, cm^2/g)
+    path1 = r'results/20260331_16bit/pixel_values/160kV_4mA_step_sample_0_data.pkl'
+    path2 = r'results/TYM_test_16bit/pixel_values/160kv-2mA-125us-0.5pF-disc-post_calib_cropped_step_sample_9_data.pkl'
+
+    # 1. Comparison of Steps (125us vs 270us) - Stepped Mode
+    print("\n=== RUNNING STEP COMPARISON (TYM vs Yinshan) ===")
+    configs_step = [
+        {"path": path1, "label": "Yinshan"},
+        {"path": path2, "label": "TYM"},
+    ]
+    run_comparison(configs_step, "Steps: Material", "Comparison between Yinshan and TYM")
+
 if __name__ == "__main__":
-    main()
+    main_ppt()
+    # main()

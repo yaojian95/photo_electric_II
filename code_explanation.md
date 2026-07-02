@@ -388,6 +388,14 @@ This workspace focus on validating XRT image quality and extracting standard sam
     - `load_any_dual_pixels(file_path, flip=False)`:
         - **核心逻辑**: 加载双能通道的像素值并检测是阶梯标样还是普通材质。若 `flip=True` 则自动执行步进反向反转 `low[::-1]`，用于将 thickest-to-thinnest 排列标样反转为标准的 thinnest-to-thickest 物理厚度轴。
         - 参数 `file_path`: 阶梯像素数据 pkl 的存储路径 (str)；`flip`: 是否对阶梯排序执行翻转 (bool)。
+    - `plot_single_step_hist(configs, channel_name, title_suffix, step_idx, save_path)`:
+        - **核心逻辑**: 单独提取并绘制指定通道下某特定阶梯（如低能通道 Step 1）的灰度分布直方图，用于细粒度对比不同参数或设备下的局部变化。
+        - **参数解释**:
+            - `configs` (list): 包含各个数据集像素数据 (low, high) 和标签的字典列表。
+            - `channel_name` (str): 能量通道描述（'Low' 或 'High'）。
+            - `title_suffix` (str): 标题后缀。
+            - `step_idx` (int): 阶梯索引（0-based，0代表第1级阶梯）。
+            - `save_path` (str): 图表落地磁盘路径。
     - `find_linear_pts(x_pts, y_pts, label="")`:
         - **核心逻辑**: 在对数衰减曲线中，从最薄阶梯开始进行多阶拟合，并在 $R^2$ 衰减速率超过阈值时截断，自动定位最长的优秀物理线性衰减段数。
         - 参数 `x_pts`: 阶梯标样物理厚度数组；`y_pts`: 高/低能对数衰减值；`label`: 调试材质名称。

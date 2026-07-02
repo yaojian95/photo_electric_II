@@ -7,3 +7,5 @@
 *.json
 /pkl_reader
 *.zip
+*.pptx
+*.docx
