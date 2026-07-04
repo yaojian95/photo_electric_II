@@ -140,7 +140,77 @@ def plot_mu_rho_vs_energy(elements, data_dir='nist_data'):
     plt.tight_layout()
     plt.savefig(save_path, dpi=300)
     print(f"[+] Plot saved to {save_path}")
-    plt.show()
+    plt.close()
+
+def plot_mu_ratio_difference(data_dir='nist_data'):
+    """
+    计算并绘制 Cu 和 Al 在双能 (E_L, E_H) 下的 mu_L / mu_H 比值差异。
+    考察随 E_L 升高的变化情况，对比不同的高低能间隔 (delta_E)。
+    """
+    e_lows = np.linspace(50, 250, 200)
+    delta_es = [20, 30, 40, 50]
+    
+    # 增加学术感配置
+    plt.rcParams.update({
+        'font.size': 12,
+        'axes.labelsize': 14,
+        'axes.titlesize': 14,
+        'xtick.labelsize': 12,
+        'ytick.labelsize': 12,
+        'legend.fontsize': 12,
+        'axes.linewidth': 1.2,
+        'font.family': 'sans-serif',
+        'mathtext.fontset': 'stix'
+    })
+
+    fig, axes = plt.subplots(1, 2, figsize=(14, 6))
+    colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728']
+    linestyles = ['-', '--', '-.', ':']
+
+    for idx, delta_e in enumerate(delta_es):
+        e_highs = e_lows + delta_e
+        
+        _, _, mu_cu_L = get_mu_rho_interpolated('Cu', e_lows, data_dir)
+        _, _, mu_cu_H = get_mu_rho_interpolated('Cu', e_highs, data_dir)
+        _, _, mu_al_L = get_mu_rho_interpolated('Al', e_lows, data_dir)
+        _, _, mu_al_H = get_mu_rho_interpolated('Al', e_highs, data_dir)
+
+        ratio_cu = mu_cu_L / mu_cu_H
+        ratio_al = mu_al_L / mu_al_H
+        
+        abs_diff = ratio_cu - ratio_al
+
+        # 子图1：仅绘制 delta_E = 30 keV 时的 Ratio 曲线
+        if delta_e == 30:
+            axes[0].plot(e_lows, ratio_cu, color='#D32F2F', linestyle='-', linewidth=2.5, label=r'Cu ($\mu_L / \mu_H$)')
+            axes[0].plot(e_lows, ratio_al, color='#1976D2', linestyle='-', linewidth=2.5, label=r'Al ($\mu_L / \mu_H$)')
+
+        # 子图2：绘制各个 delta_E 的 Absolute Difference 曲线
+        label_str = rf'$\Delta E = {delta_e}$ keV'
+        axes[1].plot(e_lows, abs_diff, color=colors[idx], linestyle=linestyles[idx], linewidth=2.5, label=label_str)
+
+    # 子图1：Ratio 对比设置
+    axes[0].set_title(r'Attenuation Ratio vs Low Energy ($\Delta E = 30$ keV)')
+    axes[0].set_xlabel(r'Low Energy $E_L$ (keV)')
+    axes[0].set_ylabel(r'Ratio $\mu_L / \mu_H$')
+    axes[0].grid(True, linestyle='--', alpha=0.5, color='gray')
+    axes[0].tick_params(direction='in', length=5, width=1.2, top=True, right=True)
+    axes[0].legend(frameon=True, edgecolor='black')
+
+    # 子图2：Absolute Difference 设置
+    axes[1].set_title(r'Absolute Difference between Cu and Al Ratios')
+    axes[1].set_xlabel(r'Low Energy $E_L$ (keV)')
+    axes[1].set_ylabel(r'Absolute Difference ($\Delta$ Ratio)')
+    axes[1].grid(True, linestyle='--', alpha=0.5, color='gray')
+    axes[1].tick_params(direction='in', length=5, width=1.2, top=True, right=True)
+    axes[1].legend(frameon=True, edgecolor='black')
+
+    # 保存图片
+    save_path = os.path.join(data_dir, "mu_ratio_difference.png")
+    plt.tight_layout()
+    plt.savefig(save_path, dpi=600, bbox_inches='tight')
+    print(f"[+] Ratio diff plot saved to {save_path}")
+    plt.close()
 
 def get_energy_from_mu(element_symbol, mu_list, data_dir='nist_data'):
     """
@@ -280,6 +350,9 @@ if __name__ == "__main__":
     # 1. 仅绘制 Fe, Al, Cu 的衰减曲线对比图
     target_list = ['Fe', 'Al', 'Cu', 'S']
     plot_mu_rho_vs_energy(target_list)
+    
+    # 新增: 绘制 Cu 和 Al 的 mu_L/mu_H ratio 差异
+    plot_mu_ratio_difference()
 
     # # 2. 演示功能：根据 mu 反推能量
     # # 假设我们在不同电压下测量到了 Fe 的线衰减系数 mu (cm^-1)

@@ -1,3 +1,6 @@
+## 2026-07-04
+- **Refine mu_L/mu_H Ratio Plot Layout**: 根据要求优化了 `get_mu_from_nist_new.py` 中的 `plot_mu_ratio_difference` 函数。移除了相对差异曲线图；重新布局为左右双图并排（1x2）：左图固定展示高低能差 $\Delta E = 30$ keV 下 Cu 与 Al 的 $\mu_L / \mu_H$ 比值随低能升高的下降曲线；右图展示在不同的高低能间隔（$\Delta E = 20, 30, 40, 50$ keV）下 Cu 与 Al 比值的绝对差异变化趋势。继续保留所有学术论文级别的图表渲染规范。同步更新了 `code_explanation.md`。
+
 ## 2026-07-02
 - **Save Low-Energy Step 1 Separately**: 在 [compare_tube.py](file:///e:/photo_electric_II/compare_tube.py) 中新增了 `plot_single_step_hist` 函数，用于单独绘制并保存单个特定阶梯的灰度分布直方图。修改了 `run_comparison` 函数，在进行阶梯标样比对时，除输出原有的 2x5 阶梯直方图网格大图外，同步调用该函数将低能通道的第一个阶梯（Step 1）的直方图单独保存为 `{prefix}_hist_low_step1.png`。同步更新了 [code_explanation.md](file:///e:/photo_electric_II/code_explanation.md)。
 

@@ -60,6 +60,12 @@ This workspace focus on validating XRT image quality and extracting standard sam
     - `get_energy_from_mu(element_symbol, mu_list)`: 
         - **核心功能**: 根据输入的线衰减系数 $\mu$ (cm^-1) 列表，反向推算出对应的平均 X 射线能量 (keV)。
         - 参数 `element_symbol`: 物质种类 ('Fe', 'Al', 'Cu')；`mu_list`: 线衰减系数列表。
+    - `plot_mu_rho_vs_energy(elements, data_dir='nist_data')`:
+        - **核心功能**: 绘制元素的质量衰减系数随能量变化曲线，将结果保存至指定目录。
+        - 参数 `elements`: 元素符号列表；`data_dir`: 数据保存目录。
+    - `plot_mu_ratio_difference(data_dir='nist_data')`:
+        - **核心功能**: 绘制双图展现衰减特性的能量依赖：左图计算并绘制 Cu 和 Al 在固定双能间隔 ($\Delta E = 30$ keV) 下的 mu_L / mu_H 比值衰减曲线；右图计算并对比多种高低能间隔 ($\Delta E = 20, 30, 40, 50$ keV) 下，Cu/Al 比值的绝对差异随基础能量升高的变化趋势，全部采用学术风美化排版。
+        - 参数 `data_dir`: 数据保存目录。
 
 ### `get_apd_acd.py`
 - **Purpose**: 双能 X 射线光电效应 (APD) 与康普顿散射 (ACD) 物理特征的像素级计算工具，并提供标准阶梯样品的特征演化分析与可视化管线。
