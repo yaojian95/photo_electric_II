@@ -1,3 +1,22 @@
+## 2026-07-14
+- **新增 PC2 抛废率与回收率权衡曲线 (ROC-style)**: 在 `calculate_industrial_metrics.py` 中新增 `plot_pc2_tradeoff_curve` 评估函数。该模块会自动扫描 500 个 PC2 判定阈值，严谨计算每一个阈值界线下的“矿石铜回收率”和“总体抛废率”，并绘制出一张直观反映两者博弈关系的“折线图”。生成结果自动保存在各实验目录下的 `pc2_threshold_tradeoff_curve.png` 中。
+- **增加 PC2 大于阈值分类选项**: 在 `SinglePC2ThresholdClassifier` 及其相关流水线函数中，增加了 `greater_than` 和 `pc2_greater_than` 参数。通过设置此参数为 `True`，可以使单变量 PC2 阈值分类器将 PC2 **大于** 阈值的像素点判定为精矿。
+- **新增反向判定实验**: 在 `run_experiment.py` 中新跑了基于大于阈值为精矿的纯新金属片实验 (`exp_metals_Z_le_30_new_only_greater_than`)，以对比阈值符号对平衡准确率的影响。
+- **报告新增总体质量准确率**: 在 `run_experiment.py` 的报告生成器中，从 `classification_summary.csv` 提取了每个模型的 `Mass_Acc` (总体质量加权准确率) 拼接到 markdown 对比表中。
+- **新增纯新金属片实验流**: 在 `run_experiment.py` 中新增并执行了 `exp_metals_Z_le_30_new_only` 实验流。该实验排除了所有旧版铜、铁、铝标样，**仅使用有效原子序数 $Z \le 30$ 的最新批次金属片（Ti, Fe, Ni, Cu, Zn）** 进行 PCA 正交基训练和特征提取。实验产生的全套可视化图表和数据指标现已完全独立保存在 `results/fit_pca/exp_metals_Z_le_30_new_only/` 目录中，方便您与之前的融合实验进行最直观的对比。
+- **修复绘图 OOM 错误**: 在 `fit_pca_classifier.py` 中进一步下调了散点图抽样的最大点数（从 20000 降至 1000），彻底修复了因为在同一超大图像绘制 8 个金属材质各数十万像素点从而导致底层 matplotlib 发生 `MemoryError: bad allocation` 的系统内存崩溃问题。
+
+## 2026-07-13
+- **厚度归一化 (Thickness Normalization)**: 彻底重构了提取特征的流水线，使得主成分分析 (PCA) 完全剥离了样本物理厚度的影响。在 `run_experiment.py` 中补全了所有参考金属的物理厚度信息（包含旧版铝10阶、铜铁4阶，以及新版金属片），并在 `fit_pca_classifier.py` 的特征提取和可视化环节中，统一将高低能对数衰减量除以各自的物理厚度 $t$（矿石取 `mean_thickness`，标样取对应厚度）。坐标系全面变更为“单位厚度衰减系数” ($u_L/t$ vs $u_H/t$)，使第一主成分向着纯粹反映密度的方向收敛，第二主成分纯粹反映有效原子序数 (Z-eff)。
+- **衰减原始空间可视化**: 新增 `plot_step_attenuation_space` 函数，在保存 PCA 转换后的平面投影图外，也会在 `results/fit_pca/` 的各实验目录下额外生成试样在高低能衰减量空间（$u_L$ 对应 $u_H$）中的原始分布图 `step_attenuation_space.png`。
+- **支持新金属片数据集扩展**: 在 `fit_pca_classifier.py` 中更新了 `load_step_data` 的兼容逻辑，现在支持直接传入文件路径的列表。基于此新增了 [fit_PCA/metal_mapping.py](file:///e:/photo_electric_II/fit_PCA/metal_mapping.py)，对最新的 `160kV_4mA` 金属序列（Zn, Ni, Sn, Fe, Ti, Pb, Cu, W）的 `pkl` 文件进行了物理厚度和种类的精准映射，并在 orchestrator 中添加了 `exp_all_metals_160kV_4mA` 实验配置。
+- **自动适配 16位/8位 $I_0$ 背景强度**: 在 `fit_pca_classifier.py` 中新增了输入数据位深自适应检测逻辑。当检测到最大灰度值超过 500（16位原生传感器数据）时，自动将 $I_0$ 修正为 $65536 \times 0.8 = 52428.8$；否则保持原有的 8位 归一化强度 $204.0$。此举不仅保证了高低能衰减量 $u_L, u_H$ 的计算结果处于物理直觉的正数区间，也完美统一了原始空间与 PCA 空间的坐标尺度体系。
+- **绘图内存溢出保护 (OOM Fix)**: 考虑到原生金属试样和矿石像素点量级数以百万计，在 `plot_step_pca_space`、`plot_step_attenuation_space` 和 `plot_ore_pca_comparison` (标样与矿石叠加网格图) 中全面部署了防内存溢出（MemoryError: bad allocation）机制。通过对 `matplotlib.pyplot.scatter` 引入最大 $20000 \sim 50000$ 个像素点的 Numpy 无放回随机降采样 (`np.random.choice`)，确保在生成包含 8 种高密度元素的复杂分布图时既能完美呈现密度趋势轮廓，又能使后台渲染速度极快、不崩溃。
+- **矿石原始衰减空间双重映射对比图**: 新增了 `plot_ore_attenuation_comparison` 绘图模块。现在系统在输出矿石的 PCA 投影对比图之前，会额外先生成对应矿石组与纯金属标样在**原始衰减量空间 ($u_L$ vs $u_H$)** 中的叠加分布网格图（如 `ore_attenuation_comparison_group1.png`）。这让您能够在没有任何坐标变换的前提下，最直观地比对出由于原子序数不同所带来的矿石衰减弧线偏转趋势。
+- **构建 Z<=30 低原子序数金属融合实验**: 在 `run_experiment.py` 中新增 `exp_metals_Z_le_30` 实验流。该实验提取了 `METAL_MAPPING` 中所有 $Z \le 30$ 的新金属（Ti, Fe, Ni, Cu, Zn），并将其与原版实验中的 10 阶旧版金属（Cu_step, Fe_step, Al_step_block）进行了混合加载，用于专门针对低低原子序数区间求解更精细的 PCA 正交基并重新评测模型的分选性能。
+- **金属序列按原子序数排序与标注**: 在 `plot_step_attenuation_space`、`plot_step_pca_space` 和 `plot_ore_pca_comparison` 所有图中，现已将各阶梯金属的显示顺序（包括子图排列、图例排序）根据其真实的原子序数 (Z 值) 进行了升序排列（例如 Al, Ti, Fe, Ni, Cu, Zn, Sn, W, Pb），并在标题及图例中清晰地标注出了具体的 `Z=...` 数值，从而方便直观分析有效原子序数（Z-eff）规律。
+- **Auto-Generate Markdown Report**: 在 `run_experiment.py` 中增加了 `generate_comparison_report` 函数。程序运行结束后，会自动读取各实验隔离目录下的 `industrial_sorting_indicators.csv` 和 `subgroup_mass_accuracy.csv` 生成 `experiment_comparison_report.md` 输出，并且统一保存所有图表至 `results/fit_pca/` 独立子目录下杜绝相互覆盖。
+
 ## 2026-07-04
 - **Refine mu_L/mu_H Ratio Plot Layout**: 根据要求优化了 `get_mu_from_nist_new.py` 中的 `plot_mu_ratio_difference` 函数。移除了相对差异曲线图；重新布局为左右双图并排（1x2）：左图固定展示高低能差 $\Delta E = 30$ keV 下 Cu 与 Al 的 $\mu_L / \mu_H$ 比值随低能升高的下降曲线；右图展示在不同的高低能间隔（$\Delta E = 20, 30, 40, 50$ keV）下 Cu 与 Al 比值的绝对差异变化趋势。继续保留所有学术论文级别的图表渲染规范。同步更新了 `code_explanation.md`。
 

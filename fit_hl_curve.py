@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import os
 import json
 import re
+import utils_II
 from utils_II import calculate_effective_z
 
 materials = {0: 'Cu_step', 1: 'Fe_step', 2: 'Al_step_block'}
@@ -14,10 +15,21 @@ os.makedirs(output_dir, exist_ok=True)
 
 def perform_comprehensive_analysis(voltage, samples_dict, output_subdir, title_prefix, x_label, x_coords_dict, limits=None, color_by_step=False, plot_mode='all', I0=204.0):
     """
-    通用 2x3 综合分析绘图函数
-    limits: { 'raw_x': (min, max), 'raw_y': (min, max), 'log_x': (min, max), 'log_y': (min, max) }
-    color_by_step (bool): 是否按照步进/圆盘的索引使用不同的颜色绘制散点图。
-    plot_mode (str): 'all' 为绘制所有像素点, 'means' 为仅绘制均值及误差棒。
+    通用 2x3 综合分析绘图函数，用于分析阶梯、圆盘或矿石样品的灰度与对数衰减关系。
+
+    参数类型、含义及用法：
+    - voltage (str): 当前处理的管电压值（例如 '160kV'），用于区分不同图像与图表标题。
+    - samples_dict (dict): 样本数据字典。格式为 {材质名: (低能像素列表, 高能像素列表)}。
+                           例如：{'Cu_step': (L_pixels_list, H_pixels_list)}。
+    - output_subdir (str): 结果图片保存的子目录路径。
+    - title_prefix (str): 图表主标题的前缀（例如 'Step Sample'），用于标识数据类别。
+    - x_label (str): X 轴物理量的标签文本（例如 'Thickness (mm)' 或 'Ore ID'）。
+    - x_coords_dict (dict): X 轴坐标字典。格式为 {材质名: ndarray 物理坐标数组}。
+                            例如：{'Cu_step': np.arange(2, 22, 2)}。
+    - limits (dict, 可选): 指定绘图坐标轴的极限限制字典。默认为 None，使用自适应限值。
+    - color_by_step (bool, 可选): 是否根据步骤/阶梯/样品的索引着色散点图。默认为 False。
+    - plot_mode (str, 可选): 绘图模式，'all' 为绘制所有像素散点，'means' 为仅绘制均值和误差棒。默认为 'all'。
+    - I0 (float, 可选): 空载入射光强背景灰度值（16-bit 下默认为 52428.0，8-bit 下为 204.0），用于对数衰减计算 ln(I0/I)。
     """
     os.makedirs(output_subdir, exist_ok=True)
     fig, axes = plt.subplots(2, 3, figsize=(18, 12))
@@ -30,7 +42,7 @@ def perform_comprehensive_analysis(voltage, samples_dict, output_subdir, title_p
     
     for mat_name, (L_list, H_list) in samples_dict.items():
         cur_x = x_coords_dict[mat_name][:len(L_list)]
-        if 'Al' in mat_name and 'step' in title_prefix.lower(): cur_x = cur_x - 10
+        if 'Al' in mat_name and 'step' in title_prefix.lower() and cur_x[0] >= 12: cur_x = cur_x - 10
         all_x_vals.append(cur_x)
         
         for l, h in zip(L_list, H_list):
@@ -43,11 +55,11 @@ def perform_comprehensive_analysis(voltage, samples_dict, output_subdir, title_p
                     # 只采集各样本的均值点，以便坐标轴紧凑
                     m_l, m_h = np.mean(lv), np.mean(hv)
                     all_L_pts.append(m_l); all_H_pts.append(m_h)
-                    all_log_L_pts.append(np.log(I0 / m_l)); all_log_H_pts.append(np.log(I0 / m_h))
+                    all_log_L_pts.append(np.log(I0 / max(m_l, 1.0))); all_log_H_pts.append(np.log(I0 / max(m_h, 1.0)))
                 else:
                     # 采集所有像素
                     all_L_pts.append(lv); all_H_pts.append(hv)
-                    all_log_L_pts.append(np.log(I0 / lv)); all_log_H_pts.append(np.log(I0 / hv))
+                    all_log_L_pts.append(np.log(I0 / np.maximum(lv, 1.0))); all_log_H_pts.append(np.log(I0 / np.maximum(hv, 1.0)))
 
     if not all_L_pts: 
         plt.close()
@@ -56,10 +68,12 @@ def perform_comprehensive_analysis(voltage, samples_dict, output_subdir, title_p
     def get_robust_range(data_list):
         if isinstance(data_list[0], np.ndarray):
             combined = np.concatenate(data_list)
-            return np.percentile(combined, [2, 98]) # 使用2%-98%分位数，避免极端噪声拉伸坐标轴
+            combined = combined[np.isfinite(combined)]
+            return np.percentile(combined, [2, 98]) if len(combined) > 0 else (0.0, 1.0)
         else:
             arr = np.array(data_list)
-            return np.min(arr), np.max(arr)
+            arr = arr[np.isfinite(arr)]
+            return (np.min(arr), np.max(arr)) if len(arr) > 0 else (0.0, 1.0)
 
     l_min, l_max = get_robust_range(all_L_pts)
     h_min, h_max = get_robust_range(all_H_pts)
@@ -151,8 +165,8 @@ def perform_comprehensive_analysis(voltage, samples_dict, output_subdir, title_p
         else:
             cur_x_vals = np.array(cur_x_raw)
 
-        plot_x = cur_x_vals - 10 if (not is_categorical and 'Al' in mat_name and 'step' in title_prefix.lower()) else cur_x_vals
-        display_label = f"{mat_name}" + (" (t-10mm)" if (not is_categorical and 'Al' in mat_name and 'step' in title_prefix.lower()) else "")
+        plot_x = cur_x_vals - 10 if (not is_categorical and 'Al' in mat_name and 'step' in title_prefix.lower() and cur_x_vals[0] >= 12) else cur_x_vals
+        display_label = f"{mat_name}" + (" (t-10mm)" if (not is_categorical and 'Al' in mat_name and 'step' in title_prefix.lower() and cur_x_vals[0] >= 12) else "")
 
         # 先绘制 axes[0, 1] 以获取该 material 的 base_color
         eb_alpha = 0.3 if plot_mode == 'means' else 0.6
@@ -296,12 +310,21 @@ def perform_comprehensive_analysis(voltage, samples_dict, output_subdir, title_p
     plt.close()
 
 # --- Main Execution ---
-voltages = ['140kV', '150kV', '160kV', '170kV', '180kV']
-input_dir = 'results/20260401_16bit/'
+# # 0401 Dataset Configuration
+# voltages = ['140kV', '150kV', '160kV', '170kV', '180kV']
+# input_dir = 'results/20260401_16bit/'
+# base_results_dir = f'results/thickness_decoupling/H_L_fit/{input_dir.strip("/").split("/")[-1]}'
+# I0_val = 52428.0 if '16bit' in input_dir else 204.0
+# step_mats = {0: 'Cu_step', 1: 'Fe_step', 2: 'Al_step_block'}
+# thicknesses = { 'Cu_step': np.arange(2, 22, 2), 'Fe_step': np.arange(2, 22, 2), 'Al_step_block': np.arange(12, 32, 2) }
+
+# 0407 Dataset Configuration
+voltages = ['160kV']
+input_dir = 'results/20260407_Sample_test/'
 base_results_dir = f'results/thickness_decoupling/H_L_fit/{input_dir.strip("/").split("/")[-1]}'
 I0_val = 52428.0 if '16bit' in input_dir else 204.0
-step_mats = {0: 'Cu_step', 1: 'Fe_step', 2: 'Al_step_block'}
-thicknesses = { 'Cu_step': np.arange(2, 22, 2), 'Fe_step': np.arange(2, 22, 2), 'Al_step_block': np.arange(12, 32, 2) }
+step_mats = {1: 'Cu_step', 3: 'Fe_step', 5: 'Al_step_block'}
+thicknesses = { 'Cu_step': np.arange(2, 22, 2), 'Fe_step': np.arange(2, 22, 2), 'Al_step_block': np.arange(2, 22, 2) }
 
 # Load disk grades config for Z_eff proxy
 config_path = r'E:\multi_source_info\data_dir\disk_grades.json'
@@ -311,7 +334,7 @@ date_match = re.search(r'(\d{8})', input_dir)
 data_date = date_match.group(1) if date_match else "20260331"
 grades_config = full_config.get(data_date, {})
 
-# 定义不同组的显示限制
+# 定义不同组 of 显示限制
 step_limits = {'raw_x': (0, 120),  'raw_y': (0, 130),  'log_x': (0.5, 5.0), 'log_y': (0.5, 5.0)}
 disk_limits = {'raw_x': (140, 210), 'raw_y': (140, 210), 'log_x': (0, 0.4),   'log_y': (0, 0.4)}
 
@@ -321,7 +344,9 @@ for voltage in voltages:
     # 1. Step Samples Analysis
     step_data = {}
     for idx, name in step_mats.items():
-        p = f'{input_dir}/pixel_values/{voltage}_4mA_step_sample_{idx}_data.pkl'
+        p_0401 = f'{input_dir}/pixel_values/{voltage}_4mA_step_sample_{idx}_data.pkl'
+        p_0407 = f'{input_dir}/pixel_values/Sample_{voltage}_test1_step_sample_{idx}_data.pkl'
+        p = p_0407 if os.path.exists(p_0407) else p_0401
         if os.path.exists(p):
             with open(p, 'rb') as f:
                 d = pickle.load(f)

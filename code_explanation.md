@@ -3,6 +3,12 @@
 ## Overview
 This workspace focus on validating XRT image quality and extracting standard sample features using an external library pipeline.
 
+### Core Feature Pipeline Update
+**Thickness Normalization (厚度归一化):** All PCA-based classification logic has been fundamentally decoupled from absolute physical thickness. The new feature extraction pipeline calculates the log attenuation $u_L, u_H$ and then mathematically divides them by their respective physical thickness $t$ (e.g., $u_L/t$ and $u_H/t$) to obtain the pure **attenuation coefficient (衰减系数)**.
+- For reference steps, explicit `thicknesses` arrays (in mm) are mapped and normalized.
+- For ores, the 3D laser-scanned `mean_thickness` from the database is used to divide raw pixel attenuations.
+This forces PC1 to represent absolute density variations and PC2 to isolate $Z_{eff}$ (Effective Atomic Number).
+
 ## External Library Integration
 - **Modules used**: `preprocessing`. The dual-energy splitting logic has been localized to `utils_II.py` to eliminate external dependencies.
 
@@ -341,18 +347,30 @@ This workspace focus on validating XRT image quality and extracting standard sam
             - `thicknesses_cm` (np.ndarray): 每个测量阶梯的实际物理厚度，单位 cm。
             - `energies_keV` (np.ndarray): 离散重建能谱的能量仓中心坐标数组，单位 keV。
     - `reconstruct_channel_spectrum(A, T, energies_keV, lambda_val=0.005, gamma=20.0, beta=10.0)`:
-        - **核心逻辑**: 【方法一】使用增广正则化非负最小二乘 (NNLS) 求解单通道归一化有效出射谱。结合二阶差分平滑约束 $\lambda$，归一化约束 $\gamma$，以及低能与高能截止边界归零约束 $\beta$。
-        - **参数解释**:
-            - `A` (np.ndarray): 系统的正向透射投影矩阵，大小 (N, M)。
-            - `T` (np.ndarray): 实测透射率向量，大小 (N,)。
-            - `energies_keV` (np.ndarray): 重建能量网格数组。
-            - `lambda_val` (float): 二阶差分平滑正则化惩罚因子。
-            - `gamma` (float): 强迫能谱总和等于 1 的归一化约束权重。
-            - `beta` (float): 强迫两端截止点强度归零的边界权重。
-    - `reconstruct_channel_spectrum_method2(step_info_list, energies_keV, voltage_kv, channel='low')`:
-        - **核心逻辑**: 【方法二】基于相邻阶梯透射率差值 $\Delta T_j = T_j - T_{j+1}$ 映射到其敏感带通峰值能量 $E^*_j = \mu^{-1}(\ln(d_{j+1}/d_j)/(d_{j+1}-d_j))$ 的能谱估算与 PCHIP 插值归一化算法。
-        - **参数解释**:
-            - `step_info_list` (list of dict): 各阶梯 of 物理信息与测量透射率明细字典列表。
+        - **核心逻辑**: 【方法一】使用增广正则化非负最小二乘 (NNLS) 求解单通道归一化有效出射谱- **Components**:
+    - `fit_hl_pca.py`: 加载指定数据集（默认为 `20260407_Sample_test`）的低能与高能灰度像素，过滤背景与饱和噪声后，直接在二维强度平面上绘制原始 H-L 散点，不添加任何拟合曲线或公式。
+    - `read_full_pkl.py`: 用于加载和分析合并清洗后的矿石数据集 `0325_0519_0520_input_cleaned_dataset_le2.pkl`，读取并打印其 4 个核心数据结构（通道像素 pandas.Series 列表、矿石理化特征 DataFrame、图像 ROI 掩膜 contour dict 等）。
+    - `plot_PCA_4subplots.py`: 结合 0407 标样阶梯背景线，在 2x2 网格中分别绘制 4 类典型矿石（品位最低且薄、品位低且厚、品位高且薄、品位高且厚）的 H-L 二维像素散点分布，并以文本框形式标注各矿石品位与厚度。
+- **Functions**:
+    - `plot_hl_scatter(voltage, samples_dict, output_subdir, title_prefix)`: 绘制并保存原始 H-L 散点分布图。
+        - 参数 `voltage` (str): 管电压描述字符串（如 '160kV'）。
+        - 参数 `samples_dict` (dict): 材质数据字典，格式为 `{mat_name: (L_list, H_list)}`。
+        - 参数 `output_subdir` (str): 散点图文件输出的目标文件夹目录。
+        - 参数 `title_prefix` (str): 图表大标题的前缀文本。
+    - `load_full_pkl(pkl_path)`:
+        - **核心逻辑**：安全地反序列化 pkl 数据集文件，并自动处理部分 Python/NumPy 版本变迁导致的 `numpy._core` 模块缺失报错（通过注册 sys.modules 别名）。
+        - **参数 `pkl_path` (str)**：待读取 pkl 文件的磁盘存储路径。
+        - **返回值**：反序列化得到的原始数据集。
+    - `analyze_dataset(input_all)`:
+        - **核心逻辑**：依次遍历并解析数据包中的 4 个核心组件，并打印各组件的元素类型、形状、通道分配及像素大小等结构概览。
+        - **参数 `input_all` (list/tuple)**：由 `load_full_pkl` 加载出来的数据结构。
+    - `plot_ore_overlay_subplot(ax, step_data, ore_L, ore_H, info_dict, title_text)`:
+        - **核心逻辑**：在给定的 ax 坐标轴上先绘制半透明淡色标样阶梯作为物理基准，然后再覆盖绘制单块矿石像素的二维散点分布，并在右下角放置说明属性文本框。
+        - **参数 `ax` (Axes)**：Matplotlib 子图坐标系对象。
+        - **参数 `step_data` (dict)**：铜铁铝阶梯的 H-L 像素参考数据字典。
+        - **参数 `ore_L` / `ore_H` (ndarray)**：目标矿石对应的低能和高能像素灰度值数组。
+        - **参数 `info_dict` (dict)**：包含品位与厚度的数据描述字典。
+        - **参数 `title_text` (str)**：子图标题。 of 物理信息与测量透射率明细字典列表。
             - `energies_keV` (np.ndarray): 重建能谱的目标能量网格数组。
             - `voltage_kv` (float): 射线管的最大管电压（能量仓上限），单位 kV。
             - `channel` (str): 电能通道，可选 `'low'` 或 `'high'`。
@@ -432,22 +450,46 @@ This workspace focus on validating XRT image quality and extracting standard sam
     - `results/thickness_decoupling/h-l-fit/disks/`: Contains analysis for graded disks (IDs 9-17).
     - `results/thickness_decoupling/h-l-fit/ores/`: Contains mixed ore samples plotting against their IDs.
 - **Functions**:
-    - `perform_comprehensive_analysis(voltage, samples_dict, output_subdir, title_prefix, x_label, x_coords_dict, color_by_step=False, plot_mode='all')`: 通用 2x3 综合分析绘图函数。
+    - `perform_comprehensive_analysis(voltage, samples_dict, output_subdir, title_prefix, x_label, x_coords_dict, limits=None, color_by_step=False, plot_mode='all', I0=204.0)`: 通用 2x3 综合分析绘图函数。
         - 参数 `voltage`: 当前处理的电压值 (str, 例如 '140kV')。
         - 参数 `samples_dict`: 样本数据字典，格式为 `{mat_name: (L_list, H_list)}` (dict)。
         - 参数 `output_subdir`: 结果保存的子目录路径 (str)。
         - 参数 `title_prefix`: 图表标题前缀 (str)。
         - 参数 `x_label`: X轴标签 (str)。
         - 参数 `x_coords_dict`: X轴坐标字典，格式为 `{mat_name: ndarray}` (dict)。
+        - 参数 `limits`: 绘图坐标极限限制字典 (dict, 默认None)。
         - 参数 `color_by_step`: 是否按照步进/圆盘的索引使用不同的颜色绘制散点图 (bool, 默认False)。
-        - 参数 `plot_mode`: 散点图绘制模式 ('all' 或 'means')。
-        - **特性**: 自动扫描数据确定自适应坐标轴限制，并强制每一行的 Y 轴（及相关 X 轴）保持一致以增强可比性。**现已支持自动识别 and 映射类别型 (Categorical) X 轴变量 (如矿石 ID)。同时，在分析矿石样品（Ore）时，为了排除硬件底噪、无效盲元和极高衰减所致异常像素，算法会自动排除灰度值小于 2560（16位，对应8位下的10）或小于 10（8位）的所有像素，并在图表大标题 (suptitle) 中添加注记说明。**
+        - 参数 `plot_mode`: 散点图绘制模式 ('all' 或 'means'，默认'all')。
+        - 参数 `I0`: 空载入射光强背景灰度值 (float, 默认204.0)。
+        - **特性**: 自动扫描数据确定自适应坐标轴限制，并强制每一行的 Y 轴（及相关 X 轴）保持一致以增强可比性。**现已支持自动识别 and 映射类别型 (Categorical) X 轴变量 (如矿石 ID)。同时，在分析矿石样品（Ore）时，为了排除硬件底噪、无效盲元和极高衰减所致异常像素，算法会自动排除灰度值小于 2560（16位，对应8位下的10）或小于 10（8位）的所有像素，并在图表大标题 (suptitle) 中添加注记说明。此外，支持对 Al 物理厚度偏移进行动态自适应，仅在初始物理坐标 `cur_x[0] >= 12` 时才自动减去 10mm（例如 0401/0331 等配置了 10mm 铝垫块的数据集），若初始厚度本身已为 2-20mm 分布（例如 0407 数据集）则直接保留，无需偏移。**
 - **Workflow**:
-    1. **Iterative Loading**: Dynamically loads data from single files (steps), multiple files (disks), and wildcard matching for ores. Now supports datasets like `20260401` up to 5 voltages (140kV-180kV), including logic to combine multi-image ore extracts (e.g. `1_20` and `21_38`) into a continuous 0-37 ID sequence.
+    1. **Iterative Loading**: Dynamically loads data from single files (steps), multiple files (disks), and wildcard matching for ores. Now supports datasets like `20260401` up to 5 voltages (140kV-180kV) and `20260407` at 160kV (using `Sample_{voltage}_test1_step_sample_{idx}_data.pkl` path pattern), including logic to combine multi-image ore extracts (e.g. `1_20` and `21_38`) into a continuous 0-37 ID sequence.
     2. **Z_eff Integration**: Loads disk grades from `disk_grades.json` and calculates $Z_{eff}$ (using `utils_II.calculate_effective_z`) to use as the x-coordinate (grade proxy).
     3. **Group-Specific Calibration**: Applies different axis limits for step samples (low gray value, high attenuation) and disk samples (high gray value, low attenuation) to ensure visibility.
     3. **Total Visualization**: Disables subsampling to plot every valid pixel in H-L space.
     4. **Grid Metrics**: Computes means, standard deviations, log-attenuation, and adaptive linear ranges.
+
+### `fit_PCA/` (PCA Analysis and Ore Classification)
+- **Purpose**: 专门用于为双能 XRT 阶梯标样和矿石数据集进行 PCA 特征解耦、二维可视化投影，以及结合 3D 物理几何特征训练机器学习分类器进行品位分类。
+- **Components**:
+    - `fit_hl_pca.py`: 加载指定数据集（默认为 `20260407`）的低高能灰度像素，在二维强度平面上绘制原始 H-L 散点（无多项式拟合曲线），作为 PCA 变换前的直观可视化。
+    - `read_full_pkl.py`: 加载和分析清洗后的矿石数据集 `0325_0519_0520_input_cleaned_dataset_le2.pkl`，展示包含 4 个组件的数据概览结构。
+    - `plot_PCA_4subplots.py`: 支持灰度平面（Grayscale）与对数衰减平面（Attenuation）双模式，在 2x2 结构中分别叠加绘制铜、铁、铝标样轨迹及 4 类典型分类矿石的二维散点分布，辅助物理界限分析。
+    - `fit_pca_classifier.py`: 主分类器评测脚本。利用标梯像素拟合 PCA 建立标准物理投影空间；将矿石的对数衰减像素点变换到 $(PC1, PC2)$ 空间；提取各矿石的 8 维 PCA 统计矩（PC1/PC2 的均值、标准差、偏度、峰度）并结合几何厚度、重量特征；采用分层 5 折交叉验证训练和评估 RF、Gradient Boosting、SVC 模型，并输出对比表格至 `classification_summary.csv`。
+    - `calculate_industrial_metrics.py`: 从 5 折交叉验证 Out-of-Fold 预测结果出发，计算各模型分选出的精废矿相应的工业生产指标（包括精矿产率、抛废率、各元素回收率及富集比），并将汇总对比表保存为 `industrial_sorting_indicators.csv`。
+    - `calculate_subgroup_metrics.py`: 将矿石根据厚度中位数、铁品位中位数以及铜品位区间划分为 8 个独立的物理子组，并计算各分类模型在每个子组下的质量准确率，导出为 `subgroup_mass_accuracy.csv`。
+    - `plot_pca_vectors_on_uluh.py`: 在原始对数衰减平面上绘制以均值点为起点的 PC1 和 PC2 正交基向量箭头，直观可视化主成分的物理指向意义。
+- **Functions**:
+    - `plot_hl_scatter(voltage, samples_dict, output_subdir, title_prefix)`: 绘制并保存原始 H-L 散点分布图。
+    - `load_full_pkl(pkl_path)`: 安全反序列化包含 NumPy 多维数组的 pkl 数据库文件。
+    - `analyze_dataset(input_all)`: 解析矿石数据集中像素矩阵和 DataFrame 的特征维度分布。
+    - `plot_ore_overlay_subplot(ax, step_data, ore_L, ore_H, info_dict, title_text, mode)`: 在给定的 Axes 上根据选定模式（灰度或衰减）绘制标样轨迹并叠加矿石像素散点。
+    - `compute_log_attenuation(L, H, I0)`: 将低高能灰度值计算为对数衰减值，并进行防除零和极端灰度的安全限幅保护。
+    - `fit_reference_pca(step_data, I0)`: 基于阶梯标样衰减值拟合 PCA 模型，返回主成分投射矩阵。
+    - `extract_ore_features(pixels_df_list, info_df, pca_model, I0)`: 批处理计算各矿石对应的原始 XRT 灰度统计量与投影后的 8 维 PCA 特征。
+    - `run_cross_validation(X, y, weights, model_name, classifier)`: 执行带特征缩放与 StratifiedKFold 交叉验证，报告数量准确率、质量加权准确率、Recall(Sens) 和 Reject(Spec)。
+    - `plot_step_pca_space(step_data, pca_model, abs_output_dir, I0)`: 绘制参考阶梯在 PC1-PC2 平面上的线性解耦分布。
+    - `plot_ore_pca_comparison(step_data, pca_model, pixels_df_list, info_df, target_ids, group_name, abs_output_dir, I0)`: 在 PC1-PC2 空间绘制 2x2 对照矿石的像素散点叠加图。
 
 ### `fit_hl_curve_0429.py`
 - **Purpose**: 针对 2026-04-29 实验数据集的综合衰减曲线分析脚本，整合了 0.6mm 与 1.2mm 滤片的对比分析，并支持与 2026-04-01 矿石数据的跨数据集对比。
@@ -746,6 +788,20 @@ This workspace focus on validating XRT image quality and extracting standard sam
     4. Translates Chinese terms in filenames to English for better compatibility.
     5. Uses `cv2.imencode` to robustly save images (default format: `.tif`) to paths containing Chinese characters.
     6. Supports **16-bit precision** (preserving raw pixel values in `uint16`) or 8-bit normalization.
+
+### `fit_PCA/` (PCA Classification & Metric Pipeline)
+- **Purpose**: 基于阶梯标样降维提取物理特征，并与 3D 几何特征融合进行矿石的 PCA 分类与工业选别指标评估。
+- **Components**:
+    - `run_experiment.py`: 统一的实验流调度器 (Orchestrator)。允许通过注入不同的 `step_config` 字典，一键执行多个对比实验（例如基准10阶与特选4阶），并完全物理隔离每次运行生成的日志、图表与 CSV 结果到对应实验名称的文件夹中。
+        - **函数 `generate_comparison_report(exp_names, output_filename="experiment_comparison_report.md")`**:
+            - **参数 `exp_names` (list)**: 包含所有需要对比的实验名称字符串的列表 (例如 `["exp_10_10_10", "exp_metals_Z_le_30", "exp_metals_Z_le_30_new_only"]`)。
+            - **参数 `output_filename` (str)**: 输出的 markdown 对比报告的文件名，默认保存在 `results/fit_pca/` 目录下。
+            - **功能含义与用法**: 此函数会自动穿梭遍历传入的各个实验文件夹，从中提取 `industrial_sorting_indicators.csv` 中的核心经济选别指标（产率、回收率、富集比等）以及 `subgroup_mass_accuracy.csv` 中的极端恶劣子组测试准确率（厚高铁贫铜组），并将横向对比结果直接输出为一份结构化的 Markdown 报告，方便用户即时进行策略对比。
+    - `fit_pca_classifier.py`: 核心分类管线。内含极度解耦的 `load_step_data(step_config)` 函数，可传入任意金属配置（兼容列表型单层 pkl 或聚合多层 pkl）加载标样；基于标样提取 PCA 物理空间特征并与矿石的三维几何特征拼接，通过 5-Fold 交叉验证（RF, GB, SVC, 以及自带平衡准确率目标的 `SinglePC2ThresholdClassifier`）评估分类性能，返回各模型的预测器与交叉验证预测值 (OOF)。
+    - `metal_mapping.py`: 金属类型、厚度与独立 `pkl` 切片文件的映射配置文件，适配最新 `160kV_4mA` 下多达 8 种纯金属材料的正交基拓展读取。
+    - `calculate_industrial_metrics.py`: 工业选别经济指标评估模块。对外暴露出 `evaluate_industrial_metrics` 接口，根据 OOF 结果计算出矿石经过各个分选模型后的：产率 (Yield)、抛废率、Cu/Fe/S 精矿品位、以及各金属的选冶回收率和富集比 (Enrichment Ratio, ER)。
+    - `calculate_subgroup_metrics.py`: 极端样本分类下钻剖析模块。暴露 `evaluate_subgroup_metrics` 接口，按厚度中位数、铁品位中位数以及铜的强阈值 (<0.05% 和 >0.1%) 将测试数据集划分为 8 类细分子组。内部独立进行交叉验证，准确识别不同算法（如单阈值与 RF 集成模型）在特定恶劣物理条件下（例如“厚度高+含铁高+贫铜废石”）的偏置现象或“偷懒”漏判率。
+
 ## Paper Notes & Guidelines
 - [notes_calibration_wedge.md](file:///e:/photo_electric_II/paper/notes_calibration_wedge.md): 铜、铝、铁阶梯标样下的双能物理系数校准指南。详尽整理了基于系统无关（SIRZ）三阶段标定算法对电子密度常数 $K_1$、原子序数常数 $g$ 与幂次 $\nu$ 的最小二乘与对数线性拟合回归数学模型。
 - [notes_sandwich_detector.md](file:///e:/photo_electric_II/paper/notes_sandwich_detector.md): 用于双能X射线成像中材料识别与对比度消除的三明治探测器设计学术阅读报告。
